@@ -1,0 +1,14 @@
+# 换行统一成 LF（仓库里所有文本都是 LF）
+* text=auto eol=lf
+
+# PowerShell 脚本带 UTF-8 BOM，且 5.1 会按 GBK 解码中文注释 —— 保持字节原样，别做任何转换
+*.ps1 -text
+
+# 二进制
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary

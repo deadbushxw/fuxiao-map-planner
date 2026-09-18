@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>拂晓 活动地图规划器</title>
+<link rel="stylesheet" href="app/style.css">
+</head>
+<body>
+<div id="fx-app">
+
+  <header>
+    <h1>拂晓 活动地图规划器</h1>
+    <select id="fx-map-select" class="fx-in"></select>
+    <div class="fx-tabs">
+      <button class="fx-tab on" id="fx-mode-1x">一倍油耗</button>
+      <button class="fx-tab" id="fx-mode-3x">三倍油耗</button>
+    </div>
+    <div class="spacer"></div>
+    <button class="fx-btn" id="fx-undo">撤回一步</button>
+    <button class="fx-btn" id="fx-reset">清空路线</button>
+    <span class="fx-muted" id="fx-storage"></span>
+  </header>
+
+  <div class="content">
+    <div class="map-wrap">
+      <div class="fx-notice" id="fx-notice"></div>
+      <div id="fx-map" style="flex:1 1 auto; min-height:0;"></div>
+    </div>
+
+    <div class="side">
+      <div class="fx-tabs">
+        <button class="fx-tab on" id="fx-tab-fleet">编队</button>
+        <button class="fx-tab" id="fx-tab-lib">舰灵库</button>
+      </div>
+      <div id="fx-lib"></div>
+
+      <h2>路线汇总</h2>
+      <div id="fx-summary"></div>
+
+      <h2>数据文件</h2>
+      <div class="fx-muted">改动会自动存到浏览器草稿；要让改动落成文件，导出后覆盖 data/ 下的同名文件。</div>
+      <div class="fx-row">
+        <button class="fx-btn" id="fx-export-ships">导出 ships.js</button>
+        <button class="fx-btn" id="fx-export-fleets">导出 fleets.js</button>
+      </div>
+      <div class="fx-row">
+        <label class="fx-label" for="fx-import">导入 ships.js</label>
+        <input type="file" id="fx-import" accept=".js" class="fx-in">
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom">
+    <div class="fx-tabs" style="margin-bottom:6px">
+      <button class="fx-tab on" id="fx-btab-routes">路线对比</button>
+      <button class="fx-tab" id="fx-btab-coverage">覆盖规划</button>
+    </div>
+    <div id="fx-routes"></div>
+    <div id="fx-coverage" style="display:none"></div>
+  </div>
+
+</div>
+
+<!-- 全部用经典 script 标签（不是 ES module），这样 file:// 双击打开不会被 CORS 拦住 -->
+<script src="data/factions.js"></script>
+<script src="data/shiptypes.js"></script>
+<script src="data/ships.js"></script>
+<script src="data/fleets.js"></script>
+<!-- 本机私有数据覆盖层（local/*.local.js，可选、不进 git）不在这里写死：
+     它们由 app/main.js 在启动时按需加载，这样静态标签偶发不执行时还能被补载回来。
+     见 local/README.md -->
+<script src="data/maps/index.js"></script>
+
+<script src="app/conditions.js"></script>
+<script src="app/graph.js"></script>
+<script src="app/oil.js"></script>
+<script src="app/coverage.js"></script>
+<script src="app/store.js"></script>
+<script src="app/map-ui.js"></script>
+<script src="app/fleet-ui.js"></script>
+<script src="app/main.js"></script>
+</body>
+</html>

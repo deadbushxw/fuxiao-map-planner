@@ -1,0 +1,12 @@
+{
+  "name": "fuxiao-map-planner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "《拂晓：胜利之刻》活动地图路线规划器（非官方，纯静态页面，双击 index.html 即用）",
+  "scripts": {
+    "test": "node tools/validate_map.js && node tools/validate_ships.js && node tools/test_core.js",
+    "privacy": "node tools/check_privacy.js",
+    "serve": "python tools/serve.py"
+  },
+  "license": "MIT"
+}
