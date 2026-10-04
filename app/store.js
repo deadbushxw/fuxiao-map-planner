@@ -34,9 +34,11 @@
     selectedRouteKey: null,
     assign: [],          // 当前路线的手动出战分配
     mode: 'x1',          // 'x1' | 'x3'
+    mapMode: 'event',    // 'event' 限时活动 | 'archive' 档案（常驻）。只影响代币与掉落加成的展示
     objective: 'net',    // 自动分配目标: 'net'（省油）
     hideUnknown: false,
     visitedByMap: {},    // { 地图id: { 节点id: true } } 已通过（非灰）的战斗节点
+    historyByMap: {},    // { 地图id: { manual: {nodes,at}|null, auto: {nodes,at}|null } } 路线历史，见下方
     recent: [],          // 最近编入过队伍的舰灵 id，最新的在前
     coverageOpts: {      // 覆盖规划选项
       allowRetreat: true,    // 允许中途撤退（则候选含所有路线前缀）
@@ -80,9 +82,11 @@
       state.selectedRouteKey = saved.selectedRouteKey || null;
       state.assign = saved.assign || [];
       state.mode = saved.mode || 'x1';
+      state.mapMode = saved.mapMode === 'archive' ? 'archive' : 'event';
       state.objective = saved.objective || 'net';
       state.hideUnknown = !!saved.hideUnknown;
       state.visitedByMap = saved.visitedByMap || {};
+      state.historyByMap = saved.historyByMap || {};
       state.recent = saved.recent || [];
       if (saved.coverageOpts) Object.assign(state.coverageOpts, saved.coverageOpts);
     } else {
@@ -227,6 +231,17 @@
     save();
   }
 
+  /** 一键清空**某一个队伍**：该队舰灵全下，**另一队和编队本身（名字、强队设置）都不动**。
+   *  返回被清掉的舰灵数；界面用它决定按钮是否可点。 */
+  function clearTeam(fleet, teamIdx) {
+    var team = fleet && fleet.teams && fleet.teams[teamIdx];
+    if (!team || !team.ships || !team.ships.length) return 0;
+    var n = team.ships.length;
+    team.ships = [];
+    save();
+    return n;
+  }
+
   /** 把某艘船移到队首 —— 队首即旗舰 */
   function setFlagship(fleet, teamIdx, shipId) {
     var team = fleet && fleet.teams && fleet.teams[teamIdx];
@@ -270,6 +285,68 @@
     save();
   }
 
+  /* ---------- 路线历史（只存本地，按地图隔离） ----------
+   * 两种来源分开记，**每种只保留最新的一条**:
+   *   manual —— 用户在地图上一个一个节点点出来的路线
+   *   auto   —— 用户直接点程序配好的路线（路线对比 / 覆盖规划里点行）
+   * 按地图 id 分开存，换地图互不影响；全部落在同一个 localStorage 草稿里，
+   * 不联网、不上传（这个项目本来就没有任何网络请求）。
+   */
+
+  /** 取某张地图的历史槽；没有就建一个空的 */
+  function historyOf(mapId) {
+    var h = state.historyByMap[mapId];
+    if (!h) h = state.historyByMap[mapId] = { manual: null, auto: null };
+    return h;
+  }
+
+  /** 记一条历史。kind 为 'manual' | 'auto'。
+   *  只有起点一个节点的不算"路线"（例如「清空路线」之后），直接忽略，
+   *  这样误点清空/撤回到底不会把之前辛苦点出来的路线冲掉。 */
+  function recordHistory(mapId, kind, nodes) {
+    if (kind !== 'manual' && kind !== 'auto') return null;
+    if (!mapId || !nodes || nodes.length < 2) return null;
+    var h = historyOf(mapId);
+    h[kind] = { nodes: nodes.slice(), at: Date.now() };
+    save();
+    return h[kind];
+  }
+
+  /** 删掉某张地图的某一种历史 */
+  function deleteHistory(mapId, kind) {
+    var h = state.historyByMap[mapId];
+    if (!h || !h[kind]) return false;
+    h[kind] = null;
+    if (!h.manual && !h.auto) delete state.historyByMap[mapId];
+    save();
+    return true;
+  }
+
+  /** 清空某张地图的全部历史 */
+  function clearHistory(mapId) {
+    if (!state.historyByMap[mapId]) return false;
+    delete state.historyByMap[mapId];
+    save();
+    return true;
+  }
+
+  /**
+   * 管理界面用的列表: [{ mapId, manual, auto, latest }]，**按 latest 从老到新**。
+   * latest 取手动/自动里较新的那个时间 —— 只用来排序；
+   * 两条各自的记录时间都留在 manual.at / auto.at 里，界面要分别标出来。
+   */
+  function historyList() {
+    var out = [];
+    Object.keys(state.historyByMap).forEach(function (id) {
+      var h = state.historyByMap[id];
+      if (!h || (!h.manual && !h.auto)) return;
+      var latest = Math.max(h.manual ? h.manual.at : 0, h.auto ? h.auto.at : 0);
+      out.push({ mapId: id, manual: h.manual || null, auto: h.auto || null, latest: latest });
+    });
+    out.sort(function (a, b) { return a.latest - b.latest; });
+    return out;
+  }
+
   /* ---------- 导入导出 ---------- */
   /** 在一个假的 window 上执行数据文件，取出要的全局变量 */
   function parseDataFile(text, varName) {
@@ -310,9 +387,12 @@
     addFleet: addFleet, removeFleet: removeFleet, currentFleet: currentFleet,
     usageOf: usageOf, dedupeFleet: dedupeFleet, mergeById: mergeById,
     addShipToTeam: addShipToTeam, removeShipFromTeam: removeShipFromTeam, setFlagship: setFlagship,
+    clearTeam: clearTeam,
     toggleFav: toggleFav, touchRecent: touchRecent,
     visitedOf: visitedOf, isVisited: isVisited, setVisited: setVisited,
     toggleVisited: toggleVisited, setVisitedBulk: setVisitedBulk,
+    historyOf: historyOf, recordHistory: recordHistory, deleteHistory: deleteHistory,
+    clearHistory: clearHistory, historyList: historyList,
     parseDataFile: parseDataFile, download: download,
     exportShips: exportShips, exportFleets: exportFleets
   };

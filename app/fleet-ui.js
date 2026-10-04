@@ -520,7 +520,21 @@
         h('span', { class: 'fx-team-title' + (fleet.strongTeam === ti ? ' is-strong' : ''),
                     text: (ti + 1) + '队' + (fleet.strongTeam === ti ? '（强）' : '') }),
         h('span', { class: 'fx-muted', text: '旗舰 = 列表第一位' }),
-        h('span', { class: 'fx-muted', id: 'fx-team-' + ti + '-count', text: team.ships.length + '/6' })
+        // 右侧：人数 + 一键清空这一队（只清本队，另一队和编队本身都不动）
+        h('span', { class: 'fx-team-right' }, [
+          h('span', { class: 'fx-muted', id: 'fx-team-' + ti + '-count', text: team.ships.length + '/6' }),
+          h('button', {
+            class: 'fx-chip-btn fx-team-clear', id: 'fx-team-' + ti + '-clear', text: '清空',
+            disabled: team.ships.length ? null : 'disabled',
+            title: team.ships.length
+              ? ('把 ' + (ti + 1) + '队里这 ' + team.ships.length + ' 个舰灵全部移除（另一队不受影响）')
+              : '这一队本来就是空的',
+            onclick: function () {
+              FX.store.clearTeam(fleet, ti);
+              onChange();
+            }
+          })
+        ])
       ]));
       box.appendChild(h('div', { class: 'fx-chips', id: 'fx-team-' + ti + '-chips' }));
       var actions = h('div', { class: 'fx-row' });

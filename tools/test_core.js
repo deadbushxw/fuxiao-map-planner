@@ -272,6 +272,20 @@ eq(store.addShipToTeam(f3, 1, 'z'), false, '同一队内也不能重复加入');
 const f4 = { id: 'f4', teams: [{ ships: ['1', '2', '3', '4', '5', '6'] }, { ships: [] }] };
 eq(store.addShipToTeam(f4, 0, 'x'), false, '队伍满 6 个后不能再加');
 
+// 一键清空某一队：只清这一队，另一队和编队本身都不动
+const fClear = { id: 'fclear', name: '编队1', strongTeam: 1, teams: [{ ships: ['a', 'b'] }, { ships: ['c'] }] };
+eq(store.clearTeam(fClear, 0), 2, 'clearTeam 返回被清掉的舰灵数');
+eq(fClear.teams[0].ships, [], '1 队被清空');
+eq(fClear.teams[1].ships, ['c'], '2 队原样不动');
+eq(fClear.name, '编队1', '编队名保留');
+eq(fClear.strongTeam, 1, '「强队」设置保留');
+eq(store.clearTeam(fClear, 0), 0, '清一个本来就空的队伍返回 0，不报错');
+eq(store.clearTeam(fClear, 9), 0, '队伍序号越界返回 0，不报错');
+eq(store.clearTeam(null, 0), 0, '编队为空返回 0，不报错');
+// 清空后占用应被释放：原来的 a 现在能编进 2 队
+eq(store.usageOf(fClear), { c: 1 }, '清空后该队的占用被释放');
+eq(store.addShipToTeam(fClear, 1, 'a'), true, '被清出来的船可以再编进另一队');
+
 const f5 = { id: 'f5', teams: [{ ships: ['a', 'b', 'c'] }, { ships: [] }] };
 store.setFlagship(f5, 0, 'c');
 eq(f5.teams[0].ships, ['c', 'a', 'b'], 'setFlagship 把目标移到队首（队首即旗舰）');
@@ -369,6 +383,70 @@ const badBoss = Object.keys(map.nodes).filter(id => {
          n.bosses.some(b => !b || !b.type || !b.armor);
 });
 eq(badBoss, [], '所有 BOSS 点的 bosses 数据都完整（type + armor）');
+
+console.log('\n[14] 一轮代币收益（限时活动口径: BOSS 90 / 普通战斗点 40 / 非战斗点 0）');
+eq(oil.TOKEN_REWARD, { boss: 90, battle: 40 }, '代币单价集中在 TOKEN_REWARD 一处，便于修正');
+const tokOf = ns => oil.tokens(graph.analyzeRoute(map, ns), map);
+// START->A->B->D->I 全程都是普通战斗点
+eq(tokOf(['START', 'A', 'B', 'D', 'I']).total, 160, '4 个普通战斗点 = 4×40 = 160');
+eq(tokOf(['START', 'A', 'B', 'D', 'I']).bossCount, 0, '该路线没有 BOSS');
+eq(tokOf(['START', 'A', 'B', 'D', 'I']).detail.length, 4, 'detail 只列真的给代币的节点');
+// 同一族路线带上补给点 R，代币不应因此变化（补给点是非战斗点）
+eq(tokOf(['START', 'A', 'B', 'E', 'H', 'L', 'P', 'R', 'S']).total, 330, '6 个战斗点 + 1 个 BOSS = 6×40+90 = 330，补给点 R 不给');
+eq(tokOf(['START', 'A', 'B', 'E', 'H', 'L', 'P', 'R', 'S']).battleCount, 6, '普通战斗点计数不含补给点与起点');
+eq(tokOf(['START', 'A', 'B', 'E', 'H', 'L', 'P', 'R', 'S']).bossCount, 1, 'BOSS 计数 = 1（R 是补给点，不算）');
+eq(tokOf(['START']).total, 0, '只有起点时收益为 0');
+// 健壮性：坏输入不崩
+eq(oil.tokens(null, map).total, 0, 'analysis 为空时返回 0 而不是崩掉');
+eq(oil.tokens({ nodes: ['不存在的节点'] }, map).total, 0, '未知节点 id 直接跳过');
+eq(oil.tokens({ nodes: ['START'] }, null).total, 0, 'map 为空时返回 0 而不是崩掉');
+
+console.log('\n[15] 路线历史（本地、按地图隔离、手动/自动各留最新一条）');
+// 重置历史，避免受前面用例影响
+store.state.historyByMap = {};
+store.recordHistory('mA', 'manual', ['START', 'A', 'B']);
+eq(store.historyOf('mA').manual.nodes, ['START', 'A', 'B'], '手动路线记下来了');
+eq(store.historyOf('mA').auto, null, '刚记手动时没有自动历史');
+
+store.recordHistory('mA', 'manual', ['START', 'A', 'B', 'D']);
+eq(store.historyOf('mA').manual.nodes, ['START', 'A', 'B', 'D'], '同一种历史只保留最新的一条（旧的被顶掉）');
+store.recordHistory('mA', 'auto', ['START', 'C', 'F']);
+eq(store.historyOf('mA').manual.nodes, ['START', 'A', 'B', 'D'], '记自动不会动到手动那条');
+eq(store.historyOf('mA').auto.nodes, ['START', 'C', 'F'], '自动路线单独存');
+
+// 按地图隔离
+store.recordHistory('mB', 'auto', ['START', 'X']);
+eq(store.historyOf('mA').auto.nodes, ['START', 'C', 'F'], '另一张地图的历史不会覆盖本图的');
+eq(store.historyOf('mB').manual, null, '另一张地图的手动槽是空的');
+eq(Object.keys(store.state.historyByMap).sort(), ['mA', 'mB'], '历史按地图 id 分开存');
+
+// 只起点一个节点的不算路线（清空/撤回到底时不该把之前的记录冲掉）
+eq(store.recordHistory('mA', 'manual', ['START']), null, '只有起点时不记录');
+eq(store.historyOf('mA').manual.nodes, ['START', 'A', 'B', 'D'], '被忽略的短路线没有冲掉已有记录');
+eq(store.recordHistory('mA', 'manual', []), null, '空路线也不记录');
+eq(store.recordHistory('mA', 'bogus', ['START', 'A']), null, '未知的 kind 直接忽略');
+
+// 排序：同图取两条中较新的一条当排序依据；两条各自的时间都保留
+store.state.historyByMap = {};
+store.recordHistory('old', 'manual', ['START', 'A']);
+store.recordHistory('new', 'manual', ['START', 'B']);
+store.state.historyByMap.old.manual.at = 1000;
+store.state.historyByMap.new.manual.at = 2000;
+store.state.historyByMap.new.auto = { nodes: ['START', 'C'], at: 3000 };
+eq(store.historyList().map(x => x.mapId), ['old', 'new'], '按时间从老到新排列');
+eq(store.historyList()[1].latest, 3000, '同图取手动/自动里较新的那个当排序依据');
+eq([store.historyList()[1].manual.at, store.historyList()[1].auto.at], [2000, 3000], '两条各自的记录时间都留着');
+
+// 删除 / 清空
+eq(store.deleteHistory('new', 'auto'), true, '删掉单条自动历史');
+eq(store.historyOf('new').auto, null, '自动那条没了');
+eq(store.historyOf('new').manual.nodes, ['START', 'B'], '手动那条还在');
+eq(store.deleteHistory('new', 'manual'), true, '再删掉手动那条');
+eq(store.state.historyByMap['new'], undefined, '两条都没了就整条地图记录一起清掉');
+eq(store.deleteHistory('new', 'manual'), false, '重复删除返回 false 而不是报错');
+eq(store.clearHistory('old'), true, '清空某张地图的全部历史');
+eq(store.historyByMap === undefined && store.state.historyByMap.old, undefined, '清空后该地图不再出现在列表里');
+eq(store.historyList(), [], '全清空后列表为空');
 
 console.log(`\n=== ${pass} 通过, ${fail} 失败 ===\n`);
 process.exit(fail ? 1 : 0);

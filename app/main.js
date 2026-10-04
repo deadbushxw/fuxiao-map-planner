@@ -11,6 +11,13 @@
   var notice = '';       // 一次性提示
   var libTab = 'fleet';
 
+  /* ---------- 运行模式: 限时活动 / 档案 ----------
+   * 地图数据一律按「限时活动」版本记录（含活动代币与金船掉落UP），见 README。
+   * 「档案」是同一张图转为常驻后的版本，游戏里**没有**代币商店、也**没有**掉落加成，
+   * 所以切到档案时把这两项直接忽略掉就行 —— 那是正常状态，不是数据缺失，不要报警。
+   * （首次活动 / 复刻 / 闪回 在地图掉落上完全一致，本工具不再细分。） */
+  function isArchive() { return !!S && S.mapMode === 'archive'; }
+
   /* 阵营显示成「奥鲁加（德）」 */
   function facLabel(name) {
     return root.FX_FACTION_LABEL ? root.FX_FACTION_LABEL(name) : name;
@@ -94,8 +101,110 @@
       return;
     }
     S.selectedRouteKey = FX.graph.routeKey(routeNodes);
+    // 在地图上一个一个点出来的 = 手动路线，记进本地历史
+    FX.store.recordHistory(MAP.id, 'manual', routeNodes);
     FX.store.save();
     rerender();
+  }
+
+  /* ---------- 路线历史（本地，按地图隔离） ---------- */
+
+  function fmtHistTime(ts) {
+    if (!ts) return '—';
+    var d = new Date(ts), p = function (n) { return (n < 10 ? '0' : '') + n; };
+    return (d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+
+  /** 把一条历史载回地图 —— 效果和点「路线对比」里某一行一样。
+   *  注意这是"调阅"不是"新走一条路线"，所以不再写回历史（否则等于自己覆盖自己）。 */
+  function loadHistoryRoute(nodes) {
+    if (!nodes || nodes.length < 2) return;
+    routeNodes = nodes.slice();
+    S.selectedRouteKey = FX.graph.routeKey(routeNodes);
+    S.assign = [];
+    FX.store.save();
+    rerender();
+  }
+
+  /** 地图左下角那个方框：本地图的手动 / 自动两条历史各一行，有记录的那行可以点着载回地图 */
+  function renderHistoryBox() {
+    var host = doc.getElementById('fx-history-box');
+    if (!host) return;
+    host.innerHTML = '';
+    if (!MAP) return;
+    // 注意别把这个局部变量叫 h —— 会遮住上面那个建 DOM 的 h() 辅助函数
+    var hist = FX.store.historyOf(MAP.id);
+    [['manual', '手动'], ['auto', '自动']].forEach(function (pair) {
+      var kind = pair[0], label = pair[1];
+      var rec = hist[kind];
+      var isCurrent = !!rec && FX.graph.routeKey(rec.nodes) === S.selectedRouteKey;
+      host.appendChild(h('div', {
+        class: 'fx-hist-line' + (rec ? ' has-rec' : ' empty') + (isCurrent ? ' on' : ''),
+        title: rec ? '点一下把这条路线载回地图' : '',
+        onclick: rec ? function () { loadHistoryRoute(rec.nodes); } : null
+      }, [
+        h('span', { class: 'fx-hist-kind', text: label }),
+        h('span', { class: 'fx-hist-route', text: rec ? rec.nodes.join('→') : '（还没有记录）' }),
+        h('span', { class: 'fx-hist-time', text: rec ? fmtHistTime(rec.at) : '' })
+      ]));
+    });
+  }
+
+  /** 「历史管理」面板：以地图为单位，按时间从老到新排 */
+  function renderHistory(host) {
+    host.innerHTML = '';
+    var maps = {};
+    (root.FX_MAPS || []).forEach(function (m) { maps[m.id] = m; });
+    var list = FX.store.historyList();
+
+    host.appendChild(h('div', { class: 'fx-sum-line fx-sum-big', text: '路线历史（本地保存，按地图分开，不联网）' }));
+    if (!list.length) {
+      host.appendChild(h('div', { class: 'fx-empty', text: '还没有任何历史。在地图上点节点走出路线，或直接点「路线对比 / 覆盖规划」里的某一行，就会记下来。' }));
+      return;
+    }
+    host.appendChild(h('div', { class: 'fx-muted', text:
+      '共 ' + list.length + ' 张地图有历史，按时间从老到新排列；每张地图手动、自动各只留最新的一条。' }));
+
+    var table = h('table', { class: 'fx-table fx-hist-table' });
+    table.appendChild(h('thead', {}, [h('tr', {}, ['地图', '来源', '路线', '记录时间', ''].map(function (t) {
+      return h('th', { text: t });
+    }))]));
+    var tb = h('tbody', {});
+    list.forEach(function (item) {
+      var m = maps[item.mapId];
+      var name = m ? (m.event + ' / ' + m.difficulty) : item.mapId;
+      [['manual', '手动'], ['auto', '自动']].forEach(function (pair, idx) {
+        var kind = pair[0], label = pair[1];
+        var rec = item[kind];
+        // 管理面板保持"只看 + 删除"：整行刻意不可点，载回地图只走左下角那个历史框
+        var tr = h('tr', { class: 'fx-hist-row' + (rec ? '' : ' none') });
+        if (idx === 0) {
+          tr.appendChild(h('td', { class: 'fx-hist-map', rowspan: '2', text: name }));
+        }
+        tr.appendChild(h('td', { class: 'fx-hist-kind-cell', text: label }));
+        tr.appendChild(h('td', { class: 'fx-route-path', text: rec ? rec.nodes.join('→') : '（无）' }));
+        tr.appendChild(h('td', { class: 'fx-hist-time-cell', text: rec ? fmtHistTime(rec.at) : '—' }));
+        tr.appendChild(h('td', {}, [
+          h('button', { class: 'fx-btn fx-btn-danger', text: '删除', disabled: rec ? null : 'disabled',
+            title: rec ? ('删除这张地图的「' + label + '」历史') : '这条没有历史可删',
+            onclick: function () {
+              if (!confirm('删除「' + name + '」的「' + label + '」历史？')) return;
+              FX.store.deleteHistory(item.mapId, kind);
+              rerender();
+            } }),
+          idx === 0 ? h('button', { class: 'fx-btn', text: '清空本图', style: 'margin-left:6px',
+            title: '清空这张地图的手动 + 自动两条历史',
+            onclick: function () {
+              if (!confirm('清空「' + name + '」的全部路线历史？')) return;
+              FX.store.clearHistory(item.mapId);
+              rerender();
+            } }) : null
+        ]));
+        tb.appendChild(tr);
+      });
+    });
+    table.appendChild(tb);
+    host.appendChild(table);
   }
 
   /* ---------- 汇总面板 ---------- */
@@ -130,16 +239,22 @@
         });
       }
       (term.goldDrops || []).forEach(function (g) {
-        box.appendChild(h('div', { class: 'fx-gold' + (g.up ? '' : ' no-up'),
-          text: '金色掉落：' + g.name + ' · ' + facLabel(g.faction) + ' · ' + g.shipType + (g.up ? ' · 掉落UP' : ' · 非UP') }));
+        // 档案没有掉落加成，「非UP」在那儿不是缺点而是常态，所以整条不加 UP 标注
+        var tail = isArchive() ? '' : (g.up ? ' · 掉落UP' : ' · 非UP');
+        box.appendChild(h('div', { class: 'fx-gold' + (!isArchive() && !g.up ? ' no-up' : ''),
+          text: '金色掉落：' + g.name + ' · ' + facLabel(g.faction) + ' · ' + g.shipType + tail }));
       });
-      if (term.otherDropsGold && term.otherDropsGold.length) {
-        box.appendChild(h('div', { class: 'fx-warn', text: '⚠ 另有金色非UP掉落 ' +
-          term.otherDropsGold.map(function (g) { return g.name; }).join('、') + '，会稀释掉落池' }));
+      // 下面两条都是「限时活动的 UP 机制」衍生出来的概念（非UP金船稀释掉落池），
+      // 档案里没有掉落加成，谈不上污染，因此档案模式下既不提示也不给标记按钮。
+      if (!isArchive()) {
+        if (term.otherDropsGold && term.otherDropsGold.length) {
+          box.appendChild(h('div', { class: 'fx-warn', text: '⚠ 另有金色非UP掉落 ' +
+            term.otherDropsGold.map(function (g) { return g.name; }).join('、') + '，会稀释掉落池' }));
+        }
+        if (term.polluted) box.appendChild(h('div', { class: 'fx-warn', text: '⚠ 该点已被你标记为"有金色非UP掉落"（污染）' }));
+        box.appendChild(h('button', { class: 'fx-chip-btn', text: '标记污染', title: '普通战斗点有时会有金色非UP舰灵，自动识别覆盖不到，由使用者手动标记',
+          onclick: function () { term.polluted = !term.polluted; MAP.nodes[a.terminal].polluted = term.polluted; FX.store.save(); rerender(); } }));
       }
-      if (term.polluted) box.appendChild(h('div', { class: 'fx-warn', text: '⚠ 该点已被你标记为"有金色非UP掉落"（污染）' }));
-      box.appendChild(h('button', { class: 'fx-chip-btn', text: '标记污染', title: '普通战斗点有时会有金色非UP舰灵，自动识别覆盖不到，由使用者手动标记',
-        onclick: function () { term.polluted = !term.polluted; MAP.nodes[a.terminal].polluted = term.polluted; FX.store.save(); rerender(); } }));
       host.appendChild(box);
     }
 
@@ -196,6 +311,16 @@
       h('span', { text: '三倍一轮油耗' }), h('b', { text: res3.net + ' 油' }),
       h('span', { class: 'fx-muted', text: '（毛耗 ' + res3.gross + ' − 返油 ' + res3.refund + '）' })
     ]));
+    // 一轮代币收益：紧挨着一轮油耗放，两者同一处对照。档案没有代币商店，整行不出现。
+    if (!isArchive()) {
+      var tk = FX.oil.tokens(analysis, MAP);
+      var TR = FX.oil.TOKEN_REWARD;
+      oilBox.appendChild(h('div', { class: 'fx-kv fx-token-row' }, [
+        h('span', { text: '一轮代币' }), h('b', { text: tk.total + ' 代币' }),
+        h('span', { class: 'fx-muted', text: '（BOSS ' + tk.bossCount + ' 个 ×' + TR.boss +
+          ' ＋ 战斗点 ' + tk.battleCount + ' 个 ×' + TR.battle + '）' })
+      ]));
+    }
     oilBox.appendChild(h('div', { class: 'fx-kv' }, [
       h('span', { text: '弹药（两种模式相同）' }),
       h('b', { text: '1队 ' + res1.ammo[0] + '/5　2队 ' + res1.ammo[1] + '/5' })
@@ -269,6 +394,8 @@
     var rows = all.map(function (nodes) {
       var a = FX.graph.analyzeRoute(MAP, nodes);
       var row = { nodes: nodes, a: a };
+      // 代币只跟路线经过哪些节点有关，跟编队无关，所以没建编队时也算得出来
+      if (!isArchive()) row.tokens = FX.oil.tokens(a, MAP);
       if (fleet) {
         var ctx = FX.conditions.buildContext(fleet, shipMap);
         row.condResult = FX.conditions.evaluateAll(FX.graph.routeConds(a), ctx);
@@ -293,7 +420,10 @@
     });
 
     var table = h('table', { class: 'fx-table fx-route-table' });
-    table.appendChild(h('thead', {}, [h('tr', {}, ['路线', '战斗', '油点', '一倍油', '三倍油', '弹药', '条件', '终点'].map(function (t) {
+    var COLS = ['路线', '战斗', '油点', '一倍油', '三倍油'];
+    if (!isArchive()) COLS.push('代币');   // 档案没有代币，整列不出现
+    COLS = COLS.concat(['弹药', '条件', '终点']);
+    table.appendChild(h('thead', {}, [h('tr', {}, COLS.map(function (t) {
       return h('th', { text: t });
     }))]));
     var tb = h('tbody', {});
@@ -303,6 +433,8 @@
                            routeNodes = r.nodes.slice();
                            S.selectedRouteKey = FX.graph.routeKey(routeNodes);
                            S.assign = r.auto && r.auto.ok ? r.auto.assign.slice() : [];
+                           // 直接点程序配好的路线 = 自动路线
+                           FX.store.recordHistory(MAP.id, 'auto', routeNodes);
                            FX.store.save(); rerender();
                          } });
       tr.appendChild(h('td', { class: 'fx-route-path', text: r.nodes.join('→') }));
@@ -311,15 +443,18 @@
 
       if (!fleet) {
         tr.appendChild(h('td', { text: '—' })); tr.appendChild(h('td', { text: '—' }));
+        if (r.tokens) tr.appendChild(h('td', { class: 'fx-token-cell', text: r.tokens.total }));
         tr.appendChild(h('td', { text: '—' }));
         tr.appendChild(h('td', { text: '未建编队' }));
       } else if (!r.auto.ok) {
         tr.appendChild(h('td', { text: '—' })); tr.appendChild(h('td', { text: '—' }));
+        if (r.tokens) tr.appendChild(h('td', { class: 'fx-token-cell', text: r.tokens.total }));
         tr.appendChild(h('td', { text: '—' }));
         tr.appendChild(h('td', { class: 'bad', text: '走不通' }));
       } else {
         tr.appendChild(h('td', { text: r.r1.net }));
         tr.appendChild(h('td', { text: r.r3.net }));
+        if (r.tokens) tr.appendChild(h('td', { class: 'fx-token-cell', text: r.tokens.total }));
         tr.appendChild(h('td', { text: r.r1.ammo[0] + '/' + r.r1.ammo[1] }));
         var st = '✓';
         var cls = 'good';
@@ -329,11 +464,14 @@
         tr.appendChild(h('td', { class: cls, text: st }));
       }
       var term = MAP.nodes[r.a.terminal];
+      // 这一列本来是「终点 boss 装甲」；非 boss 终点（补给点/普通战斗点）没有装甲，
+      // 直接写「无Boss」，不要留个光秃秃的 '?' 让人以为数据缺了。
+      var armorTxt = (term.type === 'boss') ? FX.graph.armorText(term) : '无Boss';
       var gold = (term.goldDrops || []).map(function (g) {
-        return g.name + '·' + facLabel(g.faction) + (g.up ? '' : '(非UP)');
+        return g.name + '·' + facLabel(g.faction) + ((isArchive() || g.up) ? '' : '(非UP)');
       }).join('、');
-      tr.appendChild(h('td', { text: r.a.terminal + '/' + FX.graph.armorText(term) + (gold ? ' · ' + gold : '') +
-        (term.polluted ? ' ⚠' : '') }));
+      tr.appendChild(h('td', { text: r.a.terminal + '/' + armorTxt + (gold ? ' · ' + gold : '') +
+        ((!isArchive() && term.polluted) ? ' ⚠' : '') }));
       tb.appendChild(tr);
     });
     table.appendChild(tb);
@@ -549,12 +687,13 @@
     var shipMap = FX.store.shipMap();
     var rows = sol.runs.map(function (run) {
       var an = FX.graph.analyzeRoute(MAP, run.nodes);
-      var r = { run: run, an: an, net1: null, net3: null, why: null };
+      var r = { run: run, an: an, net1: null, net3: null, why: null, assign: null };
       if (fleet) {
         var auto = FX.oil.autoAssign(an, fleet, shipMap, S.mode);
         if (auto.ok) {
           r.net1 = FX.oil.compute(an, fleet, shipMap, auto.assign, 'x1');
           r.net3 = FX.oil.compute(an, fleet, shipMap, auto.assign, 'x3');
+          r.assign = auto.assign.slice();
         } else {
           r.why = auto.reason;
         }
@@ -574,12 +713,21 @@
     if (!fleet) host.appendChild(h('div', { class: 'fx-muted', text: '（建一个编队后会同时算出每趟油耗与弹药分配）' }));
 
     var table = h('table', { class: 'fx-table fx-route-table' });
-    table.appendChild(h('thead', {}, [h('tr', {}, ['趟', '路线', '战数', '本趟新增覆盖', '油点', '一倍油', '三倍油', ''].map(function (t) {
+    table.appendChild(h('thead', {}, [h('tr', {}, ['趟', '路线', '战数', '本趟新增覆盖', '油点', '一倍油', '三倍油'].map(function (t) {
       return h('th', { text: t });
     }))]));
     var tb = h('tbody', {});
     rows.forEach(function (r, i) {
-      var tr = h('tr', { class: 'fx-route-row' });
+      // 和「路线对比」一样：点整行就把这一趟载入左侧地图，不再需要右边那个「载入地图」按钮
+      var tr = h('tr', { class: 'fx-route-row' + (FX.graph.routeKey(r.run.nodes) === S.selectedRouteKey ? ' sel' : ''),
+                         onclick: function () {
+                           routeNodes = r.run.nodes.slice();
+                           S.selectedRouteKey = FX.graph.routeKey(routeNodes);
+                           S.assign = r.assign ? r.assign.slice() : [];
+                           // 直接点程序配好的路线 = 自动路线
+                           FX.store.recordHistory(MAP.id, 'auto', routeNodes);
+                           FX.store.save(); rerender();
+                         } });
       tr.appendChild(h('td', { text: '第' + (i + 1) + '趟' }));
       tr.appendChild(h('td', { class: 'fx-route-path', text: r.run.nodes.join('→') }));
       tr.appendChild(h('td', { text: r.run.battles }));
@@ -587,17 +735,11 @@
       tr.appendChild(h('td', { text: r.an.oilPoints.length ? r.an.oilPoints.map(function (x) { return x.node + '@' + x.afterBattle; }).join(',') : '—' }));
       tr.appendChild(h('td', { text: r.net1 ? r.net1.net : '—' }));
       tr.appendChild(h('td', { text: r.net3 ? r.net3.net : '—' }));
-      tr.appendChild(h('td', {}, [h('button', { class: 'fx-btn', text: '载入地图', onclick: function (e) {
-        e.stopPropagation();
-        routeNodes = r.run.nodes.slice();
-        S.selectedRouteKey = FX.graph.routeKey(routeNodes);
-        S.assign = [];
-        FX.store.save(); rerender();
-      } })]));
       tb.appendChild(tr);
     });
     table.appendChild(tb);
     host.appendChild(table);
+    host.appendChild(h('div', { class: 'fx-muted', text: '共 ' + rows.length + ' 趟（点一行可载入到左侧地图）' }));
 
     var problems = rows.filter(function (r) { return r.why; });
     if (problems.length) {
@@ -627,6 +769,7 @@
       reachable: reachableFrom(tail),
       visited: visited,
       pending: pending,
+      mapMode: S.mapMode,
       onNodeClick: onNodeClick,
       // 标记动作也跟着页签走，避免在看不到标记时留下"隐形"的状态改动
       onToggleVisited: showCover ? function (id) {
@@ -665,13 +808,22 @@
 
     doc.getElementById('fx-btab-routes').className = 'fx-tab' + (bottomTab === 'routes' ? ' on' : '');
     doc.getElementById('fx-btab-coverage').className = 'fx-tab' + (bottomTab === 'coverage' ? ' on' : '');
+    doc.getElementById('fx-btab-history').className = 'fx-tab' + (bottomTab === 'history' ? ' on' : '');
     doc.getElementById('fx-routes').style.display = bottomTab === 'routes' ? '' : 'none';
     doc.getElementById('fx-coverage').style.display = bottomTab === 'coverage' ? '' : 'none';
+    doc.getElementById('fx-history').style.display = bottomTab === 'history' ? '' : 'none';
+    // 「历史管理」时这一栏上移盖住地图；点另外两个页签就下移回来
+    doc.getElementById('fx-app').className = (bottomTab === 'history' ? 'fx-history-open' : '');
     if (bottomTab === 'routes') renderRouteTable(doc.getElementById('fx-routes'));
-    else renderCoverage(doc.getElementById('fx-coverage'));
+    else if (bottomTab === 'coverage') renderCoverage(doc.getElementById('fx-coverage'));
+    else renderHistory(doc.getElementById('fx-history'));
+
+    renderHistoryBox();
 
     doc.getElementById('fx-mode-1x').className = 'fx-tab' + (S.mode === 'x1' ? ' on' : '');
     doc.getElementById('fx-mode-3x').className = 'fx-tab' + (S.mode === 'x3' ? ' on' : '');
+    doc.getElementById('fx-runmode-event').className = 'fx-tab' + (isArchive() ? '' : ' on');
+    doc.getElementById('fx-runmode-archive').className = 'fx-tab' + (isArchive() ? ' on' : '');
     doc.getElementById('fx-undo').disabled = routeNodes.length < 2;
     doc.getElementById('fx-storage').textContent = FX.store.isStorageOK() ? '' : '⚠ 浏览器禁用了本地存储，改动不会自动保存，请用「导出」';
   }
@@ -690,6 +842,7 @@
   /* ---------- 启动 ---------- */
   function start(maps) {
     S = FX.store.init();
+    if (styleBroken) notice = '⚠ 样式表 app/style.css 没加载成功，页面会没有样式（功能不受影响），按 F5 刷新一下。';
     if (!maps.length) {
       doc.getElementById('fx-map').innerHTML = '<div class="fx-empty">没有加载到地图数据。检查 data/maps/index.js 的清单和对应文件。</div>';
       return;
@@ -713,12 +866,19 @@
     });
     doc.getElementById('fx-tab-fleet').onclick = function () { libTab = 'fleet'; rerender(); };
     doc.getElementById('fx-tab-lib').onclick = function () { libTab = 'lib'; rerender(); };
+    doc.getElementById('fx-runmode-event').onclick = function () { S.mapMode = 'event'; FX.store.save(); rerender(); };
+    doc.getElementById('fx-runmode-archive').onclick = function () { S.mapMode = 'archive'; FX.store.save(); rerender(); };
     doc.getElementById('fx-btab-routes').onclick = function () { bottomTab = 'routes'; rerender(); };
     doc.getElementById('fx-btab-coverage').onclick = function () { bottomTab = 'coverage'; rerender(); };
+    doc.getElementById('fx-btab-history').onclick = function () { bottomTab = 'history'; rerender(); };
     doc.getElementById('fx-mode-1x').onclick = function () { S.mode = 'x1'; FX.store.save(); rerender(); };
     doc.getElementById('fx-mode-3x').onclick = function () { S.mode = 'x3'; FX.store.save(); rerender(); };
     doc.getElementById('fx-undo').onclick = function () {
-      if (routeNodes.length > 1) { routeNodes.pop(); S.assign = []; S.selectedRouteKey = FX.graph.routeKey(routeNodes); FX.store.save(); rerender(); }
+      if (routeNodes.length > 1) {
+        routeNodes.pop(); S.assign = []; S.selectedRouteKey = FX.graph.routeKey(routeNodes);
+        FX.store.recordHistory(MAP.id, 'manual', routeNodes);
+        FX.store.save(); rerender();
+      }
     };
     doc.getElementById('fx-reset').onclick = function () {
       routeNodes = [MAP.start]; S.assign = []; S.selectedRouteKey = null; FX.store.save(); rerender();
@@ -817,8 +977,69 @@
       });
   }
 
+  /** 样式表到底生效了没有。分两层判断，缺一不可：
+   *
+   *  1) 首选看 CSSOM 里解析出几条规则 —— 但这只在 http(s) 下可靠。
+   *     **file:// 下读 cssRules 一定抛 SecurityError**（每个本地文件算独立源），
+   *     那是"读不到"，不是"没加载上"！最初把抛异常当成失败，结果双击打开 index.html
+   *     时样式明明是好的，却一直报"样式表没加载成功"，刷新也没用 —— 这里修的就是它。
+   *  2) 读不到规则就退一步，看**样式有没有真的作用到元素上**：
+   *     下面这两个属性只有 app/style.css 会设，没加载上时它们是浏览器默认值。
+   *     这样正好能把两种情况分开：跨源/本地已加载（属性生效）→ 算好；
+   *     同源但真的 404/500（属性没生效）→ 才算坏。 */
+  function cssReady() {
+    var link = doc.querySelector('link[rel="stylesheet"]');
+    if (link) {
+      try { if (link.sheet && link.sheet.cssRules && link.sheet.cssRules.length) return true; }
+      catch (e) { /* file:// 或跨源，正常现象，交给下面按计算结果判断 */ }
+    }
+    var app = doc.getElementById('fx-app');
+    if (!app || !root.getComputedStyle) return !!link;   // 连计算样式都拿不到时，退化成"link 在就算好"
+    var cs = root.getComputedStyle(app);
+    return cs.display === 'flex' && cs.flexDirection === 'column';
+  }
+
+  function loadStylesheet() {
+    return new Promise(function (resolve) {
+      var old = doc.querySelector('link[rel="stylesheet"]');
+      if (old && old.parentNode) old.parentNode.removeChild(old);
+      var s = doc.createElement('link');
+      s.rel = 'stylesheet';
+      s.setAttribute('data-fx-heal', '1');   // 标记这条是自检补载补上的，方便对着 DOM 排查
+      // file:// 下 src/href 不能带查询串（会被当成文件名的一部分），所以只在 http(s) 下防缓存
+      s.href = 'app/style.css' + (canBust() ? ('?r=' + Date.now()) : '');
+      s.onload = function () { resolve(true); };
+      s.onerror = function () { resolve(false); };
+      doc.head.appendChild(s);
+    });
+  }
+
+  /* 样式表自检补载
+   * 和上面 script 的偶发漏执行同源：实测遇到过一次 app/style.css 没加载成功，
+   * 页面照样能跑，但**完全没有样式**（白底黑字），很容易被误判成样式写错了。
+   * 这里用和 script 一样的办法兜一道：没生效就重新挂一个 link，最多补挂两次
+   * （首轮失败后再补一次，总共 2 次尝试），补不上也**不拦启动**（功能不受影响），
+   * 只在顶部提示条上说一句。已实测：一次失败会被第二次补回来；
+   * 两次都失败时页面照常启动、地图和界面功能都在，只是没样式。
+   * **file:// 双击打开属于第一层判断读不到的情况，会被第二层（计算样式）正确判成"好的"，
+   *  所以不会误报、也不会白白重挂一遍。** */
+  var styleBroken = false;
+  function ensureStylesheet() {
+    if (cssReady()) return Promise.resolve(true);
+    return loadStylesheet().then(function () {
+      if (cssReady()) return true;
+      return loadStylesheet();
+    }).then(function () {
+      styleBroken = !cssReady();
+      if (styleBroken && root.console) root.console.error('app/style.css 没有加载成功，页面会没有样式');
+      return !styleBroken;
+    });
+  }
+
   doc.addEventListener('DOMContentLoaded', function () {
-    ensureModules().then(function (stillMissing) {
+    ensureStylesheet().then(function () {
+      return ensureModules();
+    }).then(function (stillMissing) {
       if (stillMissing.length) {
         fatal('以下脚本没有加载成功：' + stillMissing.join('、') +
               '。请确认这些文件存在、路径正确，并按 F12 看 Console 有没有报错。');

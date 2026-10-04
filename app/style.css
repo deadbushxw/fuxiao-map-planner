@@ -46,7 +46,7 @@ header .spacer { flex: 1; }
 .fx-btn-primary { background: #1d4f7a; border-color: #2f7ab5; }
 .fx-btn-danger { color: var(--red); }
 
-.content { flex: 1 1 auto; display: flex; min-height: 0; }
+.content { flex: 1 1 0%; display: flex; min-height: 0; transition: flex-grow .28s ease; }
 
 .map-wrap {
   flex: 1 1 auto; min-width: 0; position: relative;
@@ -69,7 +69,43 @@ header .spacer { flex: 1; }
 .bottom {
   flex: 0 0 290px; border-top: 1px solid var(--line); background: var(--panel);
   overflow: auto; padding: 8px 12px;
+  transition: flex-grow .28s ease;
 }
+/* 点「历史管理」时，下面这一栏平滑上移盖住地图；点「路线对比 / 覆盖规划」再平滑落回来。
+   用 flex-grow 做动画（display 不能过渡，之前那样是硬切、很突兀）：
+   常态 .content 吃掉剩余高度、.bottom 固定 290；历史态两者对调。
+   收起时给 .content 加 overflow:hidden，地图不会溢出到面板上。 */
+#fx-app.fx-history-open .content { flex-grow: 0; overflow: hidden; }
+#fx-app.fx-history-open .bottom { flex-grow: 1; }
+
+/* 地图左下角的历史框（手动 / 自动各一行，各只留最新一条）。
+   框本身不挡地图点击，只有"有记录"的那行才接收指针事件、可以点着载回地图。 */
+.fx-hist-box {
+  position: absolute; left: 12px; bottom: 12px; max-width: calc(100% - 24px);
+  background: rgba(18, 35, 53, .88); border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 8px; pointer-events: none;
+}
+.fx-hist-line {
+  display: flex; gap: 8px; align-items: baseline; font-size: 12px; white-space: nowrap;
+  border-radius: 4px; padding: 1px 4px; margin: 0 -4px;
+}
+.fx-hist-line + .fx-hist-line { margin-top: 2px; }
+.fx-hist-kind { flex: 0 0 auto; color: var(--blue); }
+.fx-hist-route { color: var(--fg); overflow: hidden; text-overflow: ellipsis; }
+.fx-hist-time { flex: 0 0 auto; color: var(--muted); margin-left: auto; }
+.fx-hist-line.empty .fx-hist-route { color: var(--muted); }
+.fx-hist-line.has-rec { pointer-events: auto; cursor: pointer; }
+.fx-hist-line.has-rec:hover { background: #1b3149; }
+.fx-hist-line.on { background: #24405c; }
+.fx-hist-line.on .fx-hist-kind::after { content: ' ●'; color: var(--gold); font-size: 9px; }
+
+/* 历史管理面板 */
+.fx-hist-table { margin-top: 6px; }
+.fx-hist-table td { vertical-align: top; }
+.fx-hist-map { color: var(--blue); font-weight: 600; white-space: nowrap; border-right: 1px solid var(--line); }
+.fx-hist-kind-cell { color: var(--muted); white-space: nowrap; }
+.fx-hist-time-cell { color: var(--muted); white-space: nowrap; }
+.fx-hist-row.none .fx-hist-kind-cell { opacity: .55; }
 
 h2 { font-size: 13px; margin: 14px 0 6px; color: var(--blue); font-weight: 600; }
 h2:first-child { margin-top: 0; }
@@ -106,6 +142,10 @@ h2:first-child { margin-top: 0; }
 .fx-team-head { display: flex; justify-content: space-between; margin-bottom: 6px; }
 .fx-team-title { font-weight: 600; }
 .fx-team-title.is-strong { color: var(--gold); }
+/* 队伍标题右侧：人数 + 一键清空本队 */
+.fx-team-right { display: flex; align-items: center; gap: 6px; }
+.fx-team-clear:hover:not(:disabled) { color: var(--red); }
+.fx-chip-btn:disabled { opacity: .35; cursor: default; }
 .fx-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .fx-chip {
   display: inline-flex; align-items: center; gap: 4px;
@@ -141,6 +181,12 @@ h2:first-child { margin-top: 0; }
 .fx-oil-box, .fx-cond-box { margin: 10px 0; padding: 8px; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; }
 .fx-kv { display: flex; gap: 8px; align-items: baseline; margin: 3px 0; }
 .fx-kv b { color: var(--gold); }
+/* 一轮代币收益：和一倍/三倍一轮油耗贴在一起对照，用青色和"消耗"的金色区分开。
+   侧栏很窄，标签和数字不许折行，只有后面的说明可以换行。 */
+.fx-token-row { border-top: 1px dashed var(--line); padding-top: 4px; margin-top: 6px; flex-wrap: wrap; }
+.fx-token-row b { color: var(--blue); }
+.fx-token-row > span:first-child, .fx-token-row > b { flex: 0 0 auto; white-space: nowrap; }
+.fx-token-cell { color: var(--blue); }
 
 .fx-cond-row {
   display: grid; grid-template-columns: 88px 1fr auto auto;

@@ -1,4 +1,4 @@
-/* 油耗 / 弹药 计算 + 出战队伍自动分配
+/* 油耗 / 弹药 / 一轮代币收益 计算 + 出战队伍自动分配
  *
  * 规则（游戏内实测确认）:
  *   1. 每个战斗节点从两队里任选一队出战
@@ -10,6 +10,10 @@
  *   一倍: 单战消耗 F     油点返还 ⌊F/2⌋
  *   三倍: 单战消耗 3F    油点返还 ⌊3F/2⌋     <-- 先乘三再取整, 不是 ⌊F/2⌋×3
  *   例: F=55 -> 一倍返 27; 三倍耗 165 返 82 (而 27×3=81, 会少算 1)
+ *
+ * 代币收益（只有「限时活动」版本才有，见 README「限时活动与档案」）:
+ *   数值是当前认为值，可能随后修正 —— 要改只改 TOKEN_REWARD 这一处。
+ *   档案（常驻）版本游戏里没有代币商店，所以档案模式下这个值不该被展示。
  *
  * 自动分配: 穷举 2^(战斗数) 种分配（战斗数 ≤10，最多 1024 种），
  *           在满足"boss 点必须强队"和"每队 ≤5 战"的前提下取所选模式油耗最小。
@@ -133,6 +137,30 @@
     return best;
   }
 
+  /* ---------- 一轮代币收益（只有「限时活动」版本有） ----------
+   * boss 点 90 / 普通战斗点 40 / 非战斗点（起点、补给点）0。
+   * 数值是当前认为值，实测有出入就改这里，全项目只此一处。 */
+  var TOKEN_REWARD = { boss: 90, battle: 40 };
+
+  /**
+   * 算一条路线一轮能拿多少代币。只跟路线经过哪些节点有关，
+   * 跟编队、出战分配、一倍/三倍都无关（三倍只放大油耗和掉落，不加代币）。
+   * 注: 这是「限时活动」的口径，档案版本没有代币商店，调用方不要在档案模式下展示它。
+   */
+  function tokens(analysis, map) {
+    var bossCount = 0, battleCount = 0, total = 0, detail = [];
+    ((analysis && analysis.nodes) || []).forEach(function (id) {
+      var n = (map && map.nodes) ? map.nodes[id] : null;
+      if (!n) return;
+      var v = 0;
+      if (n.type === 'boss') { v = TOKEN_REWARD.boss; bossCount++; }
+      else if (n.type === 'battle') { v = TOKEN_REWARD.battle; battleCount++; }
+      if (v) detail.push({ node: id, type: n.type, tokens: v });
+      total += v;
+    });
+    return { total: total, bossCount: bossCount, battleCount: battleCount, detail: detail };
+  }
+
   /** 按强队优先 / 交替的朴素默认分配（给手动模式一个初始值） */
   function defaultAssign(analysis, formation) {
     var strong = (formation && formation.strongTeam) || 0;
@@ -152,7 +180,8 @@
 
   return {
     AMMO_PER_BATTLE: AMMO_PER_BATTLE, AMMO_CAP: AMMO_CAP,
-    teamInfo: teamInfo, compute: compute,
+    TOKEN_REWARD: TOKEN_REWARD,
+    teamInfo: teamInfo, compute: compute, tokens: tokens,
     checkAssignment: checkAssignment, autoAssign: autoAssign, defaultAssign: defaultAssign
   };
 });

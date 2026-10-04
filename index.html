@@ -11,6 +11,12 @@
   <header>
     <h1>拂晓 活动地图规划器</h1>
     <select id="fx-map-select" class="fx-in"></select>
+    <!-- 地图版本模式：限时活动有活动代币商店 + 金船掉落UP，档案（常驻）两者都没有。
+         地图数据一律按「限时活动」版本记录，切到档案时把这两项忽略掉即可，详见 README。 -->
+    <div class="fx-tabs">
+      <button class="fx-tab on" id="fx-runmode-event">限时活动</button>
+      <button class="fx-tab" id="fx-runmode-archive">档案</button>
+    </div>
     <div class="fx-tabs">
       <button class="fx-tab on" id="fx-mode-1x">一倍油耗</button>
       <button class="fx-tab" id="fx-mode-3x">三倍油耗</button>
@@ -25,6 +31,8 @@
     <div class="map-wrap">
       <div class="fx-notice" id="fx-notice"></div>
       <div id="fx-map" style="flex:1 1 auto; min-height:0;"></div>
+      <!-- 本地图的两条路线历史（手动 / 自动各一条，各只留最新）。点「历史管理」时会被管理面板盖上 -->
+      <div class="fx-hist-box" id="fx-history-box"></div>
     </div>
 
     <div class="side">
@@ -54,9 +62,11 @@
     <div class="fx-tabs" style="margin-bottom:6px">
       <button class="fx-tab on" id="fx-btab-routes">路线对比</button>
       <button class="fx-tab" id="fx-btab-coverage">覆盖规划</button>
+      <button class="fx-tab" id="fx-btab-history">历史管理</button>
     </div>
     <div id="fx-routes"></div>
     <div id="fx-coverage" style="display:none"></div>
+    <div id="fx-history" style="display:none"></div>
   </div>
 
 </div>

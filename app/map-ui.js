@@ -76,7 +76,7 @@
     el('polygon', { points: hexPoints(cx, cy, r * 0.82), fill: 'none', stroke: col.fill, 'stroke-width': 5 }, g);
   }
 
-  function describe(node, map, isVisited) {
+  function describe(node, map, isVisited, mapMode) {
     var lines = [node.label + '（' + typeLabel(node.type) + '）' + (isVisited ? ' ✅已通过' : '')];
     if (node.type === 'boss') {
       var armors = FX.graph && FX.graph.armorList ? FX.graph.armorList(node) : (node.armor ? [node.armor] : []);
@@ -88,7 +88,8 @@
       lines.push('→ ' + e.to + '：' + (e.raw || '') + (e.prob ? '（概率 ' + e.prob + '）' : ''));
     });
     if (!(node.next || []).length) lines.push('（终点，无后续）');
-    if (node.polluted) lines.push('⚠ 已标记：有金色非UP掉落（污染）');
+    // 「金色非UP掉落」是限时活动的 UP 机制才有的概念；档案没有掉落加成，不提示
+    if (node.polluted && mapMode !== 'archive') lines.push('⚠ 已标记：有金色非UP掉落（污染）');
     return lines.join('\n');
   }
 
@@ -155,6 +156,12 @@
         el('circle', { cx: n.x, cy: n.y, r: 40, fill: 'none', stroke: '#ffd633',
                        'stroke-width': 3, 'stroke-dasharray': '8 7', opacity: 0.9 }, g);
       }
+
+      // 扩大点击判定范围到「可去」时那个黄色虚线圈那么大（r=40），
+      // 这样圆圈内的空白处也能点中，不用精确戳到六边形/骷髅上。
+      // 用 fill=transparent + pointer-events=all：fill="none" 是不接收指针事件的。
+      el('circle', { cx: n.x, cy: n.y, r: 40, fill: 'transparent', 'pointer-events': 'all' }, g);
+
       drawNodeShape(g, n, n.x, n.y, 26);
 
       // 还没通过、且规划里仍需覆盖的节点：左上角一个橙点
@@ -190,7 +197,7 @@
       }
 
       var title = el('title', {}, g);
-      title.textContent = describe(n, map, isVisited);
+      title.textContent = describe(n, map, isVisited, opts.mapMode);
       g.addEventListener('click', function (ev) {
         // Shift+点击 切换"已通过"，普通点击延伸路线
         if (ev.shiftKey) { opts.onToggleVisited && opts.onToggleVisited(id); return; }

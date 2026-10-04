@@ -21,3 +21,7 @@ Thumbs.db
 desktop.ini
 *.tmp
 *.log
+plan.md
+
+# 会话工具的临时目录（工具输出、探针文件），不进仓库
+.dsh-tmp/

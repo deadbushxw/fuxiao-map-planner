@@ -4,6 +4,7 @@
  * 每个地图文件通过 window.FX_MAPS.push({...}) 注册自己, 与加载顺序无关。
  */
 window.FX_MAP_FILES = [
-  "bolanhui.js"
+  "bolanhui.js",
+  "pinganye.js"
   // "next-event.js",
 ];
