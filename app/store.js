@@ -14,6 +14,7 @@
 
   var KEY = 'fuxiao.plan.v1';
   var storageOK = true;
+  var historyCameFromDraft = false;   // 这次的历史是从旧版浏览器草稿里捞出来的（还没落到文件）
 
   function safeGet() {
     try { return JSON.parse(root.localStorage.getItem(KEY) || 'null'); }
@@ -86,7 +87,6 @@
       state.objective = saved.objective || 'net';
       state.hideUnknown = !!saved.hideUnknown;
       state.visitedByMap = saved.visitedByMap || {};
-      state.historyByMap = saved.historyByMap || {};
       state.recent = saved.recent || [];
       if (saved.coverageOpts) Object.assign(state.coverageOpts, saved.coverageOpts);
     } else {
@@ -94,6 +94,13 @@
       state.fleets = fileFleets;
       save();
     }
+    /* 历史：正式归宿是 local/history.local.js，浏览器草稿里不留（见本文件头）。
+     * 只在**旧版**把历史存进过草稿时读一次，好让老数据不丢；读到了就记个标记，
+     * 界面会提示"还没落到文件里"，提醒导出一次。 */
+    var draftHistory = (saved && saved.historyByMap && Object.keys(saved.historyByMap).length)
+      ? saved.historyByMap : null;
+    state.historyByMap = draftHistory || historyBase();
+    historyCameFromDraft = !!draftHistory;
     migrateFactionNames();
     // 修掉历史草稿里可能存在的跨队重复编入
     state.fleets.forEach(function (f) { dedupeFleet(f); });
@@ -112,7 +119,13 @@
     return n;
   }
 
-  function save() { safeSet(state); }
+  /* 写浏览器草稿。**历史不进这里** —— 它的正式归宿是 local/history.local.js，
+   * 免得浏览器里留一份操作痕迹（旧版存进去的会在 init 里读一次，然后自然消失）。 */
+  function save() {
+    var copy = {};
+    Object.keys(state).forEach(function (k) { if (k !== 'historyByMap') copy[k] = state[k]; });
+    return safeSet(copy);
+  }
 
   function isStorageOK() { return storageOK; }
 
@@ -347,6 +360,54 @@
     return out;
   }
 
+  /* ---------- 历史的落地文件：local/history.local.js ----------
+   * 历史的**正式归宿是这个文件**（本机私有、不进 git，见 local/README.md）；
+   * 浏览器草稿里那份只是会话内的临时副本，离开页面时会被摘掉（dropHistoryDraft）。
+   * 往文件里写只有两条路：手动「导出」下载后覆盖，或在 Chrome/Edge 上绑定 local/ 目录自动写
+   * （后者在 app/history-file.js）。 */
+
+  /** local/history.local.js 里那份基础历史（文件不存在就是空对象） */
+  function historyBase() {
+    var base = root.FX_HISTORY;
+    return (base && typeof base === 'object' && !Array.isArray(base)) ? base : {};
+  }
+
+  /** 当前历史的一份快照字符串，用来判断"这次会话的改动写进文件了没有" */
+  function historySnapshot() { return JSON.stringify(state.historyByMap || {}); }
+
+  /** 这次的历史是不是从旧版浏览器草稿里捞出来的（是的话还没落到文件，界面该提醒导出） */
+  function historyFromDraft() { return historyCameFromDraft; }
+
+  /** 把历史从浏览器草稿里摘掉 —— 页面要离开时调用。只去掉 historyByMap，其余字段原样保留 */
+  function dropHistoryDraft() {
+    var copy = {};
+    Object.keys(state).forEach(function (k) { if (k !== 'historyByMap') copy[k] = state[k]; });
+    return safeSet(copy);
+  }
+
+  /** 历史 → local/history.local.js 的文本 */
+  function historyFileText(json) {
+    return '/* 本机私有的路线历史（可选覆盖层）\n' +
+      ' *\n' +
+      ' * 这个文件不在仓库里（见 .gitignore 的 /local/*），放的是你自己走过的路线历史。\n' +
+      ' * app/main.js 启动时按需加载它，这里的 FX_HISTORY 就是历史的底稿。\n' +
+      ' * 第一行的 FX_LOCAL_HISTORY 标记是给 main.js 判断覆盖层有没有就位用的，别删。\n' +
+      ' *\n' +
+      ' * 结构: { 地图id: { manual: {nodes, at}, auto: {nodes, at} } }\n' +
+      ' *   手动 = 在地图上逐个点节点走出来的；自动 = 点程序配好的路线行载入的。\n' +
+      ' *   两种各只保留最新一条，按地图分开。\n' +
+      ' *\n' +
+      ' * 界面上改完历史 -> 「导出 history.local.js」-> 用它覆盖本文件即可。\n' +
+      ' */\n' +
+      'window.FX_LOCAL_HISTORY = 1;\n' +
+      'window.FX_HISTORY = ' + JSON.stringify(json || {}, null, 2) + ';\n';
+  }
+
+  /** 手动导出（任何浏览器都能用）：下载 history.local.js，自己覆盖到 local/ 下 */
+  function exportHistory() {
+    download('history.local.js', historyFileText(state.historyByMap));
+  }
+
   /* ---------- 导入导出 ---------- */
   /** 在一个假的 window 上执行数据文件，取出要的全局变量 */
   function parseDataFile(text, varName) {
@@ -393,6 +454,9 @@
     toggleVisited: toggleVisited, setVisitedBulk: setVisitedBulk,
     historyOf: historyOf, recordHistory: recordHistory, deleteHistory: deleteHistory,
     clearHistory: clearHistory, historyList: historyList,
+    historyBase: historyBase, historySnapshot: historySnapshot, historyFromDraft: historyFromDraft,
+    dropHistoryDraft: dropHistoryDraft, historyFileText: historyFileText,
+    exportHistory: exportHistory,
     parseDataFile: parseDataFile, download: download,
     exportShips: exportShips, exportFleets: exportFleets
   };

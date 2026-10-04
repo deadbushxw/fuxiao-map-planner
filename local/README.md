@@ -5,14 +5,38 @@
 
 ## 怎么用
 
-`app/main.js` 启动时按需加载这两个**可选**文件：
+`app/main.js` 启动时按需加载这三个**可选**文件：
 
 ```
 local/ships.local.js    你自己的舰灵库（赋值 window.FX_SHIPS，覆盖 data/ships.js 的空模板）
 local/fleets.local.js   你自己的编队（赋值 window.FX_FLEETS）
+local/history.local.js  你自己的路线历史（赋值 window.FX_HISTORY）
 ```
 
 文件不存在时只是一次 404（浏览器控制台会留一条记录），**不影响启动**，可以忽略。
+
+### 路线历史为什么放这儿
+
+历史**不放浏览器**：浏览器草稿里那份只是会话内的临时副本，关闭/刷新页面时就被摘掉了
+（见 `app/main.js` 里的 `pagehide`）。正式归宿是这个文件。往文件里写有两条路：
+
+1. **手动导出**（任何浏览器）：在「历史管理」里点「导出 history.local.js」，下载后覆盖 `local/history.local.js`
+2. **绑定目录自动写**（Chrome / Edge）：点「绑定 local/ 目录（自动保存）」，选一次这个 `local/` 目录，
+   之后每次历史变化都自动写文件。目录句柄存在 IndexedDB 里，重开页面还能续用；
+   权限不在时会提示「需要重新授权」，点一次「重新绑定」即可。
+
+> 没导出、也没绑定目录就关页面，**这次会话新产生的历史会丢** —— 这是"历史不进浏览器"的代价。
+> 想少操心就绑一次目录。
+
+文件格式：
+
+```js
+window.FX_LOCAL_HISTORY = 1;   // 给 main.js 判断覆盖层有没有就位用的，别删
+window.FX_HISTORY = {
+  "pinganye-dex": { manual: { nodes: ["START","A","D","G"], at: 1791107299466 },
+                    auto:   { nodes: ["START","C","F","H"], at: 1791107299466 } }
+};
+```
 
 要让自己的舰灵库进这个私有层：
 

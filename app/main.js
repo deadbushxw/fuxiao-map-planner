@@ -102,7 +102,7 @@
     }
     S.selectedRouteKey = FX.graph.routeKey(routeNodes);
     // 在地图上一个一个点出来的 = 手动路线，记进本地历史
-    FX.store.recordHistory(MAP.id, 'manual', routeNodes);
+    recHistory('manual', routeNodes);
     FX.store.save();
     rerender();
   }
@@ -124,6 +124,19 @@
     S.assign = [];
     FX.store.save();
     rerender();
+  }
+
+  /** 历史改动了：标记未写盘；如果绑了 local/ 目录就顺手自动写一份 */
+  function afterHistoryChange() {
+    if (!FX.historyFile) return;
+    FX.historyFile.markDirty();
+    FX.historyFile.autoSave().then(function (ok) { if (ok) rerender(); });
+  }
+
+  /** 记历史（统一入口，避免漏掉 afterHistoryChange） */
+  function recHistory(kind, nodes) {
+    FX.store.recordHistory(MAP.id, kind, nodes);
+    afterHistoryChange();
   }
 
   /** 地图左下角那个方框：本地图的手动 / 自动两条历史各一行，有记录的那行可以点着载回地图 */
@@ -157,7 +170,52 @@
     (root.FX_MAPS || []).forEach(function (m) { maps[m.id] = m; });
     var list = FX.store.historyList();
 
-    host.appendChild(h('div', { class: 'fx-sum-line fx-sum-big', text: '路线历史（本地保存，按地图分开，不联网）' }));
+    host.appendChild(h('div', { class: 'fx-sum-line fx-sum-big', text: '路线历史（存在 local/history.local.js，不联网）' }));
+
+    // 保存去向：默认手动导出；Chrome/Edge 上可以绑定 local/ 目录改成自动写
+    if (FX.historyFile) {
+      var hs = FX.historyFile.status();
+      var save = h('div', { class: 'fx-hist-save' });
+      var line = h('div', { class: 'fx-muted' });
+      line.appendChild(h('span', { text: '保存到 ' }));
+      line.appendChild(h('b', { text: 'local/history.local.js' }));
+      line.appendChild(h('span', { text: hs.bound
+        ? '（已绑定目录「' + hs.dirName + '」，' + (hs.needsPermission ? '需要重新授权' : '历史改动会自动写进去') + '）'
+        : '（未绑定目录：改完点「导出」下载，再覆盖到 local/ 下）' }));
+      if (hs.dirty) line.appendChild(h('span', { class: 'fx-warn', text: '　⚠ 本次会话有改动还没写进文件' }));
+      if (hs.bound && hs.needsPermission) line.appendChild(h('span', { class: 'fx-warn', text: '　⚠ 请点「重新绑定」再授权一次' }));
+      if (hs.error) line.appendChild(h('span', { class: 'fx-warn', text: '　（' + hs.error + '）' }));
+      save.appendChild(line);
+
+      var acts = h('div', { class: 'fx-row' });
+      acts.appendChild(h('button', { class: 'fx-btn', text: '导出 history.local.js', onclick: function () {
+        FX.store.exportHistory();
+        FX.historyFile.markSaved();
+        notice = '已下载 history.local.js，覆盖到 local/ 下即可';
+        rerender();
+      } }));
+      if (hs.supported) {
+        acts.appendChild(h('button', { class: 'fx-btn fx-btn-primary',
+          text: hs.bound ? '重新绑定 local/ 目录' : '绑定 local/ 目录（自动保存）',
+          title: '选一次 local/ 目录，之后每次历史变化都自动写 history.local.js',
+          onclick: function () {
+            FX.historyFile.bind().then(function (ok) {
+              notice = ok ? '已绑定 local/ 目录，历史会自动写进 history.local.js'
+                          : ('没有绑定成功：' + (FX.historyFile.status().error || '已取消'));
+              rerender();
+            });
+          } }));
+        if (hs.bound) {
+          acts.appendChild(h('button', { class: 'fx-btn', text: '解除绑定', onclick: function () {
+            FX.historyFile.unbind().then(function () { notice = '已解除绑定，改回手动导出'; rerender(); });
+          } }));
+        }
+      } else {
+        acts.appendChild(h('span', { class: 'fx-muted', text: '（这个浏览器不支持目录绑定，用「导出」即可）' }));
+      }
+      save.appendChild(acts);
+      host.appendChild(save);
+    }
     if (!list.length) {
       host.appendChild(h('div', { class: 'fx-empty', text: '还没有任何历史。在地图上点节点走出路线，或直接点「路线对比 / 覆盖规划」里的某一行，就会记下来。' }));
       return;
@@ -190,6 +248,7 @@
             onclick: function () {
               if (!confirm('删除「' + name + '」的「' + label + '」历史？')) return;
               FX.store.deleteHistory(item.mapId, kind);
+              afterHistoryChange();
               rerender();
             } }),
           idx === 0 ? h('button', { class: 'fx-btn', text: '清空本图', style: 'margin-left:6px',
@@ -197,6 +256,7 @@
             onclick: function () {
               if (!confirm('清空「' + name + '」的全部路线历史？')) return;
               FX.store.clearHistory(item.mapId);
+              afterHistoryChange();
               rerender();
             } }) : null
         ]));
@@ -434,7 +494,7 @@
                            S.selectedRouteKey = FX.graph.routeKey(routeNodes);
                            S.assign = r.auto && r.auto.ok ? r.auto.assign.slice() : [];
                            // 直接点程序配好的路线 = 自动路线
-                           FX.store.recordHistory(MAP.id, 'auto', routeNodes);
+                           recHistory('auto', routeNodes);
                            FX.store.save(); rerender();
                          } });
       tr.appendChild(h('td', { class: 'fx-route-path', text: r.nodes.join('→') }));
@@ -725,7 +785,7 @@
                            S.selectedRouteKey = FX.graph.routeKey(routeNodes);
                            S.assign = r.assign ? r.assign.slice() : [];
                            // 直接点程序配好的路线 = 自动路线
-                           FX.store.recordHistory(MAP.id, 'auto', routeNodes);
+                           recHistory('auto', routeNodes);
                            FX.store.save(); rerender();
                          } });
       tr.appendChild(h('td', { text: '第' + (i + 1) + '趟' }));
@@ -858,6 +918,20 @@
     }
     if (!S.fleets.length) FX.store.addFleet();
 
+    /* 历史的正式归宿是 local/history.local.js，浏览器草稿里那份只是会话内的临时副本：
+     * 离开页面（关闭/刷新）就把它摘掉。进 bfcache 不算离开，那种情况别清。 */
+    root.addEventListener('pagehide', function (e) {
+      if (e && e.persisted) return;
+      FX.store.dropHistoryDraft();
+    });
+
+    // 启动时恢复上次绑定的 local/ 目录（只查权限、不弹窗），能写就顺手同步一次
+    if (FX.historyFile) {
+      // 旧版把历史存在浏览器草稿里：这次读出来了，但还没落到文件，界面该提示导出
+      if (FX.store.historyFromDraft()) FX.historyFile.markDirty();
+      FX.historyFile.restore().then(function (ok) { if (ok) return FX.historyFile.autoSave(); });
+    }
+
     doc.getElementById('fx-map-select').addEventListener('change', function (e) {
       MAP = (root.FX_MAPS || []).filter(function (m) { return m.id === e.target.value; })[0] || MAP;
       S.selectedMapId = MAP.id;
@@ -876,7 +950,7 @@
     doc.getElementById('fx-undo').onclick = function () {
       if (routeNodes.length > 1) {
         routeNodes.pop(); S.assign = []; S.selectedRouteKey = FX.graph.routeKey(routeNodes);
-        FX.store.recordHistory(MAP.id, 'manual', routeNodes);
+        recHistory('manual', routeNodes);
         FX.store.save(); rerender();
       }
     };
@@ -942,7 +1016,11 @@
      * 之所以登记在这里而不是只写 <script> 标签：静态标签偶尔不执行时（见上）
      * 就没有第二道防线了，那会静默丢掉整份舰灵库 —— 走同一套补载逻辑才兜得住。 */
     ['FX_LOCAL_SHIPS',  'local/ships.local.js',  true],
-    ['FX_LOCAL_FLEETS', 'local/fleets.local.js', true]
+    ['FX_LOCAL_FLEETS', 'local/fleets.local.js', true],
+    /* 路线历史的底稿（local/history.local.js，可选）：历史存文件不存浏览器，
+     * 见 README「路线历史」与 app/history-file.js */
+    ['FX_HISTORY',      'local/history.local.js', true],
+    ['FX.historyFile',  'app/history-file.js']
   ];
 
   /** 支持 'FX_SHIPS' 和 'FX.conditions' 两种写法 */

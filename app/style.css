@@ -100,6 +100,8 @@ header .spacer { flex: 1; }
 .fx-hist-line.on .fx-hist-kind::after { content: ' ●'; color: var(--gold); font-size: 9px; }
 
 /* 历史管理面板 */
+.fx-hist-save { margin: 8px 0; padding: 8px; background: var(--panel2); border: 1px solid var(--line); border-radius: 6px; }
+.fx-hist-save b { color: var(--blue); }
 .fx-hist-table { margin-top: 6px; }
 .fx-hist-table td { vertical-align: top; }
 .fx-hist-map { color: var(--blue); font-weight: 600; white-space: nowrap; border-right: 1px solid var(--line); }
