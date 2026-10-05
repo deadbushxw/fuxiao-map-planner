@@ -219,6 +219,25 @@
     return { dims: dims, conflicts: conflicts };
   }
 
+  /** 把「路线上的带路条件」整理成 维度 → 来源→目标 的索引。
+   *  入参是 graph.analyzeRoute() 的 conditions（[{from, to, edge}]），
+   *  返回 { '舰队|舰种|航母': ['D → F'], ... }，同一维度由多条边共同约束时按出现顺序去重列出。
+   *  「组队时实时对比」那几行是按维度合并渲染的，逐维回指到边才不会张冠李戴；
+   *  没有条件（无条件边）不产生条目。 */
+  function dimHops(conditions) {
+    var out = {};
+    (conditions || []).forEach(function (c) {
+      if (!c) return;
+      var hop = c.from + ' → ' + c.to;
+      ((c.edge && c.edge.cond) || []).forEach(function (p) {
+        var k = dimKey(p);
+        if (!out[k]) out[k] = [];
+        if (out[k].indexOf(hop) < 0) out[k].push(hop);
+      });
+    });
+    return out;
+  }
+
   /** 在已算出的上下文里逐条判定 */
   function evaluateAll(conds, ctx) {
     var out = { pass: [], fail: [], unknown: [] };
@@ -233,6 +252,7 @@
     DOMAIN: DOMAIN, OP_LABEL: OP_LABEL, OP_ALIAS: OP_ALIAS, normOp: normOp,
     dimKey: dimKey, domainOf: domainOf, rangeOf: rangeOf, opOK: opOK,
     dimMeta: dimMeta, dimLabel: dimLabel, valueOfDim: valueOfDim, rangeVerdict: rangeVerdict,
+    dimHops: dimHops,
     buildContext: buildContext, valueOf: valueOf, evaluate: evaluate,
     fmt: fmt, analyze: analyze, evaluateAll: evaluateAll
   };

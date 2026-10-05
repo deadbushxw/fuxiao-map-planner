@@ -139,6 +139,67 @@
     afterHistoryChange();
   }
 
+  /* ---------- 绑定 local/ 目录 ---------- */
+
+  /** 横幅被用户关掉的状态。只活这一次会话：刷新后没绑还是照样提示。
+   *  这样"关掉"是"我现在不想看"，而不是"以后别再提醒我" —— 后者会让人
+   *  在完全没意识到的情况下把历史丢光。 */
+  var bindBannerDismissed = false;
+
+  /** 一次性提示，过 ms 毫秒自己收掉（默认 4 秒）。
+   *  为什么需要它：绑定的成功提示以前走的是常驻的 notice，而它和新加的「顶端横幅」
+   *  是同一套琥珀配色、位置也紧挨着（都在页面顶端），看起来就像横幅压根没消失。
+   *  成功类提示改成自动消失；**失败类提示仍然常驻**，那个是要人处理的。 */
+  var noticeTimer = 0;
+  function flashNotice(msg, ms) {
+    notice = msg;
+    if (noticeTimer) clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(function () {
+      noticeTimer = 0;
+      if (notice !== msg) return;   // 这几秒里被别的提示顶替了，就别再动它
+      notice = '';
+      rerender();
+    }, ms || 4000);
+  }
+
+  /** 绑定 / 重新授权 local/ 目录。**必须在用户手势里调用**（会弹系统目录选择框），
+   *  所以顶端横幅和历史管理页签里那个按钮都走这里，两边行为不会漂移。 */
+  function bindLocalDir() {
+    if (!FX.historyFile) return;
+    FX.historyFile.bind().then(function (ok) {
+      if (ok) flashNotice('✓ 已绑定 local/ 目录，历史会自动写进 history.local.js');
+      else notice = '没有绑定成功：' + (FX.historyFile.status().error || '已取消');
+      rerender();
+    });
+  }
+
+  /** 顶端横幅：没绑定（或绑定过但权限失效）时提示，自带绑定按钮。
+   *  显示与否/文案由 FX.historyFile.bannerFor() 这个纯函数决定，这里只管画。 */
+  function renderBindBanner() {
+    var host = doc.getElementById('fx-bind-banner');
+    if (!host || !FX.historyFile || !FX.historyFile.bannerFor) return;
+    var info = FX.historyFile.bannerFor(FX.historyFile.status());
+    host.innerHTML = '';
+    if (!info.show || bindBannerDismissed) { host.style.display = 'none'; return; }
+    host.style.display = '';
+    host.appendChild(h('span', { class: 'fx-banner-text', text: info.text }));
+    host.appendChild(h('button', {
+      class: 'fx-btn fx-btn-primary', text: info.actionText,
+      title: '要在当前这个页面里点才会弹目录选择框；选 local/ 目录即可',
+      onclick: bindLocalDir
+    }));
+    host.appendChild(h('button', {
+      class: 'fx-btn fx-banner-close', text: '关闭',
+      title: '只是这次会话不再提示（刷新后还会出现），不会解除绑定、也不影响「导出」',
+      onclick: function () {
+        if (!confirm('关闭这条提示？\n\n没绑定目录的话，本次会话新产生的路线历史在关闭 / 刷新页面后会丢，' +
+                     '要么手动「导出 history.local.js」，要么在「历史管理」里绑定目录。')) return;
+        bindBannerDismissed = true;
+        rerender();
+      }
+    }));
+  }
+
   /** 地图左下角那个方框：本地图的手动 / 自动两条历史各一行，有记录的那行可以点着载回地图 */
   function renderHistoryBox() {
     var host = doc.getElementById('fx-history-box');
@@ -198,13 +259,7 @@
         acts.appendChild(h('button', { class: 'fx-btn fx-btn-primary',
           text: hs.bound ? '重新绑定 local/ 目录' : '绑定 local/ 目录（自动保存）',
           title: '选一次 local/ 目录，之后每次历史变化都自动写 history.local.js',
-          onclick: function () {
-            FX.historyFile.bind().then(function (ok) {
-              notice = ok ? '已绑定 local/ 目录，历史会自动写进 history.local.js'
-                          : ('没有绑定成功：' + (FX.historyFile.status().error || '已取消'));
-              rerender();
-            });
-          } }));
+          onclick: bindLocalDir }));
         if (hs.bound) {
           acts.appendChild(h('button', { class: 'fx-btn', text: '解除绑定', onclick: function () {
             FX.historyFile.unbind().then(function () { notice = '已解除绑定，改回手动导出'; rerender(); });
@@ -844,6 +899,9 @@
     nb.textContent = notice || '';
     nb.style.display = notice ? 'block' : 'none';
 
+    // 顶端横幅（未绑定 / 需重新授权时才出现）
+    renderBindBanner();
+
     // 地图选择
     var ms = doc.getElementById('fx-map-select');
     ms.innerHTML = '';
@@ -929,7 +987,10 @@
     if (FX.historyFile) {
       // 旧版把历史存在浏览器草稿里：这次读出来了，但还没落到文件，界面该提示导出
       if (FX.store.historyFromDraft()) FX.historyFile.markDirty();
-      FX.historyFile.restore().then(function (ok) { if (ok) return FX.historyFile.autoSave(); });
+      // 恢复结果出来后再刷一次：句柄还在、权限还在查的这段时间里，
+      // start() 末尾那次 rerender() 会先按"未绑定"画一次横幅，不补这一下就会闪一条误报。
+      FX.historyFile.restore().then(function (ok) { if (ok) return FX.historyFile.autoSave(); })
+        .then(function () { rerender(); });
     }
 
     doc.getElementById('fx-map-select').addEventListener('change', function (e) {

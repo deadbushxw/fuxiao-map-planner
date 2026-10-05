@@ -303,6 +303,56 @@ eq(cond.dimLabel('舰队|舰种|航母'), '舰队中 航母', 'dimLabel 描述�
 eq(cond.dimLabel('旗舰|舰种|战列'), '旗舰中 战列', 'dimLabel 描述旗舰维度');
 eq(cond.dimLabel('舰队|阵营|奥鲁加', global.window.FX_FACTION_LABEL), '舰队中 <奥鲁加（德）>', 'dimLabel 给阵营补上国家');
 
+console.log('\n[9b] 条件行的「来源 → 目标」标注（编队面板实时对比用）');
+const routeEdges = [
+  { from: 'START', to: 'A', edge: { cond: [C('舰队', '舰种', '战列', '>=', 1)] } },
+  { from: 'D', to: 'G', edge: { cond: [C('舰队', '舰灵数', null, '<', 8)] } },
+  { from: 'G', to: 'K', edge: { cond: [C('舰队', '阵营', '尤奈特', '<', 2)] } },
+  { from: 'N', to: 'S', edge: { cond: [] } }                       // 无条件边：不产生标注
+];
+const hops = cond.dimHops(routeEdges);
+eq(hops['舰队|舰种|战列'], ['START → A'], '舰队中 战列 回指到 START → A');
+eq(hops['舰队|舰灵数|'], ['D → G'], '舰灵数 回指到 D → G');
+eq(hops['舰队|阵营|尤奈特'], ['G → K'], '阵营维度也回指到边');
+eq(hops['舰队|阵营|洛蒙瑞亚'], undefined, '路线上没有的维度不产生标注');
+eq(cond.dimHops([{ from: 'A', to: 'B', edge: { cond: [] } }]), {}, '无条件边不产生节点标注');
+eq(cond.dimHops(null), {}, '传 null 不崩');
+// 同一维度由多条边共同约束：按出现顺序全部列出，不丢也不重复
+const twoEdgeHops = cond.dimHops([
+  { from: 'A', to: 'B', edge: { cond: [C('舰队', '舰种', '驱逐', '>=', 2)] } },
+  { from: 'C', to: 'D', edge: { cond: [C('舰队', '舰种', '驱逐', '<', 5)] } },
+  { from: 'E', to: 'F', edge: { cond: [C('舰队', '舰种', '驱逐', '>=', 2)] } }
+]);
+eq(twoEdgeHops['舰队|舰种|驱逐'], ['A → B', 'C → D', 'E → F'], '同维度多边按出现顺序全部列出');
+eq(cond.dimHops([{ from: 'A', to: 'B', edge: { cond: [C('舰队', '舰种', '驱逐', '>=', 2), C('舰队', '舰种', '驱逐', '<', 5)] } }])['舰队|舰种|驱逐'],
+   ['A → B'], '同一条边上同维度的多个谓词只标一次');
+
+// 用真实地图把「截图那一块」的口径锁死：平安夜这条路线渲染出来就该是这四行。
+const pye = global.window.FX_MAPS.filter(m => m.id === 'pinganye-dex')[0];
+const pyeDims = cond.analyze(graph.routeConds(graph.analyzeRoute(pye, ['START', 'A', 'D', 'G', 'K', 'N', 'S']))).dims;
+const pyeHops = cond.dimHops(graph.analyzeRoute(pye, ['START', 'A', 'D', 'G', 'K', 'N', 'S']).conditions);
+eq(pyeDims.map(d => cond.dimLabel(d.dimKey) + ' 　需 ' + (d.lo === d.hi ? ('= ' + d.lo) : (d.lo + '~' + d.hi))),
+   ['舰队中 战列 　需 1~12', '舰队中 舰灵数 　需 4~7', '舰队中 <尤奈特> 　需 0~1', '舰队中 <洛蒙瑞亚> 　需 = 0'],
+   '平安夜 START→A→D→G→K→N→S 的四行：维度与区间');
+eq(pyeDims.map(d => (pyeHops[d.dimKey] || []).join('、')),
+   ['START → A', 'D → G', 'G → K', 'N → S'],
+   '这四行各自标到正确的来源 → 目标');
+eq(pyeDims.filter(d => !(pyeHops[d.dimKey] || []).length).length, 0,
+   'dimHops 覆盖 analyze 出来的每一个维度，不会出现空标注');
+
+console.log('\n[9c] 「手动指定」覆盖值必须被同一套判定读到（实时刷新修的就是这条链路）');
+// 面板每一行 = valueOfDim(dimKey, ctx) + rangeVerdict(lo, hi, v)，ctx 由 fillStats 每次重建。
+// 所以只要输入事件重跑 fillStats，行就必须跟着变 —— 这里锁住"重建 ctx 就能拿到新判定"。
+const scoutRow = cond.analyze([C('舰队', '索敌', null, '<', 600)]).dims[0];
+eq([scoutRow.lo, scoutRow.hi], [0, 599], '「舰队索敌值<600」的可行区间是 0~599');
+const manualCtx = (v) => cond.buildContext({ teams: [{ ships: ['x'] }], scout: v },
+                                          { x: { id: 'x', type: '驱逐', faction: '奥鲁加' } });
+eq(cond.rangeVerdict(scoutRow.lo, scoutRow.hi, cond.valueOfDim('舰队|索敌|', manualCtx(900))),
+   { state: 'fail', gap: { need: 301, dir: '多' } }, '手动填 900 → 超出 301');
+eq(cond.rangeVerdict(scoutRow.lo, scoutRow.hi, cond.valueOfDim('舰队|索敌|', manualCtx(500))),
+   { state: 'pass', gap: null }, '把 900 改成 500 → 同一行立刻达标');
+eq(cond.valueOfDim('舰队|索敌|', manualCtx('')).known, false, '清空覆盖值 → 回到「未知」（舰灵没录索敌）');
+
 console.log('\n[10] 文件与草稿合并（data/ships.js 可在外部批量生成）');
 eq(store.mergeById([{ id: 'a', oil: 1 }, { id: 'b', oil: 2 }], [{ id: 'a', oil: 9 }], []).map(s => s.id + ':' + s.oil),
    ['a:9', 'b:2'], '草稿里的改动优先，文件里新增的补进来');
@@ -447,6 +497,29 @@ eq(store.deleteHistory('new', 'manual'), false, '重复删除返回 false 而不
 eq(store.clearHistory('old'), true, '清空某张地图的全部历史');
 eq(store.historyByMap === undefined && store.state.historyByMap.old, undefined, '清空后该地图不再出现在列表里');
 eq(store.historyList(), [], '全清空后列表为空');
+
+// ---------- 16. 未绑定目录的顶端横幅 ----------
+console.log('\n[16] 未绑定目录的顶端横幅（bannerFor）');
+const histFile = require(path.join(__dirname, '..', 'app', 'history-file.js'));
+const B = (patch) => histFile.bannerFor(patch || {});
+
+eq(B({ supported: true, bound: false }).show, true, '支持绑定且没绑定 → 横幅出现');
+eq(B({ supported: true, bound: false }).kind, 'bind', '没绑定时是「去绑定」这一种');
+eq(B({ supported: true, bound: false }).actionText, '选择 local/ 目录并绑定', '没绑定时按钮文案是明确的动作');
+eq(B({ supported: false, bound: false }).show, false, '浏览器不支持目录绑定 → 整条不出现（免得给一个点不动的按钮）');
+eq(B({ supported: true, bound: true, needsPermission: false }).show, false, '绑定且权限正常 → 不出现');
+const repair = B({ supported: true, bound: true, needsPermission: true, dirName: 'local' });
+eq(repair.show, true, '绑定过但权限失效 → 横幅出现');
+eq(repair.kind, 'repair', '权限失效是「重新授权」这一种，不是「去绑定」');
+eq(repair.text.indexOf('local') >= 0, true, '重新授权文案里带上目录名，用户知道是哪个目录');
+eq(repair.actionText, '重新授权 local/ 目录', '重新授权的按钮文案');
+eq(B({ supported: true, bound: true, needsPermission: true }).text.indexOf('需要重新授权') >= 0, true,
+   '没记住目录名时也要说清是权限失效');
+eq(B().show, false, '传空对象不崩且不显示');
+eq(B({ supported: true, bound: false }).text.indexOf('丢') >= 0, true, '文案说清不绑定的后果（会丢历史）');
+// 不变量：凡是 show=true 就必须有非空按钮文案 —— 否则横幅就成了"只给文字提示"
+eq([{ supported: true, bound: false }, { supported: true, bound: true, needsPermission: true }]
+     .map(s => (B(s).actionText || '').length > 0), [true, true], '每种要显示的横幅都必须自带按钮文案');
 
 console.log(`\n=== ${pass} 通过, ${fail} 失败 ===\n`);
 process.exit(fail ? 1 : 0);

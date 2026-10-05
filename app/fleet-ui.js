@@ -9,6 +9,8 @@
  *   - 舰灵库(renderLibrary): 全库搜索 + 筛选 + 排序
  * 另外编队面板常驻「两队合并」统计，并把当前路线的带路条件拉过来实时对比，
  * 组队时就能看到"还差几艘航母"，不用来回滚到下面看判定结果。
+ * 对比列表每行最左侧标出这条条件是「哪个节点 → 哪个节点」，行内改动（含「手动指定」）
+ * 就地重画 #fx-stats，不再需要切页签或重选路线才刷新。
  */
 (function (root) {
   'use strict';
@@ -397,8 +399,13 @@
     el.appendChild(line);
 
     // 当前路线条件对比
-    var conds = (routeConds || []).map(function (c) { return (c.edge.cond || [])[0]; }).filter(Boolean);
+    // 每行是「按维度合并」后的结果，所以逐维回指到边（dimHops），行首标出这条条件是哪两个节点之间的。
+    var conds = [];
+    (routeConds || []).forEach(function (c) {
+      (c.edge.cond || []).forEach(function (p) { conds.push(p); });
+    });
     if (!conds.length) return;
+    var hops = FX.conditions.dimHops(routeConds);
     var info = FX.conditions.analyze(conds);
     var box = h('div', { class: 'fx-cond-live' });
     box.appendChild(h('div', { class: 'fx-sec-title', text: '当前路线条件（两队合并判定）' }));
@@ -410,7 +417,9 @@
       var right = verdict.state === 'unknown' ? '数据不足'
                 : (verdict.state === 'pass' ? '✓ 达标'
                 : '✗ ' + verdict.gap.dir + ' ' + verdict.gap.need);
+      var hop = (hops[d.dimKey] || []).join('、');
       box.appendChild(h('div', { class: 'fx-cond-live-row ' + cls }, [
+        h('span', { class: 'fx-cond-live-hop', text: hop, title: hop ? ('这条条件来自 ' + hop) : '' }),
         h('span', { class: 'fx-cond-live-label', text: FX.conditions.dimLabel(d.dimKey) }),
         h('span', { class: 'fx-muted', text: need }),
         h('span', { text: '当前 ' + (v.known ? v.value : '?') }),
@@ -442,6 +451,16 @@
       var ti = parseInt(picker.key.split('#')[1], 10);
       fillPickerList(doc.getElementById('fx-pick-list'), state, fleet, ti, onChange);
     }
+    onChange(true);
+  }
+
+  /** 「手动指定」（舰队均速值 / 索敌值）改了就调这里。
+   *  以前这两个输入框只调 onChange(true)，而轻量路径只刷主视图的「路线汇总」、
+   *  不重跑 fillStats，于是本面板的「当前路线条件（两队合并判定）」和统计行的 均速/索敌
+   *  会一直停在旧值，要切页签/重选路线才更新。这里就地重画统计块补上这一段。
+   *  只换 #fx-stats 子树、不重绘输入框，所以逐字输入时焦点和光标都不丢。 */
+  function refreshLiveStats(fleet, onChange) {
+    fillStats(doc.getElementById('fx-stats'), fleet, FX.store.shipMap(), currentRouteConds);
     onChange(true);
   }
 
@@ -566,7 +585,7 @@
         h('input', {
           class: 'fx-in fx-in-num', type: 'number',
           value: fleet.avgSpeed === undefined ? '' : fleet.avgSpeed,
-          oninput: function (e) { fleet.avgSpeed = e.target.value; onChange(true); }
+          oninput: function (e) { fleet.avgSpeed = e.target.value; refreshLiveStats(fleet, onChange); }
         })
       ]),
       h('div', { class: 'fx-row' }, [
@@ -574,7 +593,7 @@
         h('input', {
           class: 'fx-in fx-in-num', type: 'number',
           value: fleet.scout === undefined ? '' : fleet.scout,
-          oninput: function (e) { fleet.scout = e.target.value; onChange(true); }
+          oninput: function (e) { fleet.scout = e.target.value; refreshLiveStats(fleet, onChange); }
         })
       ])
     ]));

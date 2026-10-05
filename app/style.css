@@ -46,6 +46,16 @@ header .spacer { flex: 1; }
 .fx-btn-primary { background: #1d4f7a; border-color: #2f7ab5; }
 .fx-btn-danger { color: var(--red); }
 
+/* 未绑定 local/ 目录时的顶端横幅：在 header 下面横跨整页占一行，
+   让它一眼可见又不去挡地图；窄窗口下文字换行、按钮仍可点。 */
+.fx-banner {
+  flex: 0 0 auto; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 14px; background: #4a2d0a; border-bottom: 1px solid var(--warn); color: #ffe0a8;
+}
+.fx-banner-text { flex: 1 1 340px; min-width: 0; }
+.fx-banner .fx-btn { flex: 0 0 auto; }
+.fx-banner-close { color: var(--muted); }
+
 .content { flex: 1 1 0%; display: flex; min-height: 0; transition: flex-grow .28s ease; }
 
 .map-wrap {
@@ -272,8 +282,17 @@ td.unk { color: var(--warn); }
 .fx-stats-sep { color: #2c4a68; margin: 0 6px; }
 .fx-cond-live { margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); }
 .fx-cond-live-row {
-  display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px;
+  display: grid; grid-template-columns: minmax(64px, max-content) minmax(0, 1fr) auto auto auto; gap: 8px;
   align-items: baseline; font-size: 12px; padding: 1px 0;
+}
+/* 行首「来源 → 目标」：和「路线汇总」那条带路条件的 hop 同色。
+   单来源（当前两张图的实际情况）宽度随内容走、下限 64px，节点名长一点也不会被截；
+   万一同一维度被多条边共同约束（现有两张图都构造不出，属防御分支），用「、」连接，
+   封顶 88px 截断并保留 title —— 实测量过：88px 以上会把「舰队中 索敌」这行标签挤成两行，
+   宁可截断标注也不让整行高度抖动。 */
+.fx-cond-live-hop {
+  color: var(--blue); font-size: 11px; white-space: nowrap;
+  max-width: 88px; overflow: hidden; text-overflow: ellipsis;
 }
 .fx-cond-live-label { color: var(--blue); }
 .fx-cond-live-state { font-size: 11px; min-width: 72px; text-align: right; }

@@ -139,9 +139,38 @@
              needsPermission: st.needsPermission, error: st.error, dirty: st.dirty };
   }
 
+  /** 顶端横幅该不该出现、说什么。纯函数，方便单测（main.js 是浏览器 IIFE，进不了 node）。
+   *  规则：
+   *   - 浏览器不支持目录绑定（例如非 Chrome/Edge）→ 整条不出现，免得给一个点不动的按钮
+   *   - 没绑定          → 提示去绑定，并说清不绑定的后果
+   *   - 绑定过但权限已失效（needsPermission） → 提示重新授权：这时历史会静默写不进文件，
+   *     光靠「历史管理」页签里那行小字太容易漏
+   *   - 绑定且权限正常  → 不出现 */
+  function bannerFor(statusLike) {
+    var s = statusLike || {};
+    if (!s.supported) return { show: false };
+    if (!s.bound) {
+      return {
+        show: true, kind: 'bind',
+        text: '还没有绑定目录：不绑定的话，本次会话新产生的路线历史在关闭 / 刷新页面后会丢。' +
+              '选一次 local/ 目录绑定，之后每次历史改动都会自动写进 local/history.local.js。',
+        actionText: '选择 local/ 目录并绑定'
+      };
+    }
+    if (s.needsPermission) {
+      return {
+        show: true, kind: 'repair',
+        text: (s.dirName ? 'local/ 目录「' + s.dirName + '」' : 'local/ 目录') +
+              '的写入权限已失效：历史现在写不进文件，需要重新授权一次。',
+        actionText: '重新授权 local/ 目录'
+      };
+    }
+    return { show: false };
+  }
+
   return {
     FILE: FILE, supported: function () { return st.supported; },
     bind: bind, unbind: unbind, restore: restore, autoSave: autoSave,
-    markDirty: markDirty, markSaved: markSaved, status: status
+    markDirty: markDirty, markSaved: markSaved, status: status, bannerFor: bannerFor
   };
 });

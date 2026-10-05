@@ -27,6 +27,11 @@
     <span class="fx-muted" id="fx-storage"></span>
   </header>
 
+  <!-- 未绑定 local/ 目录时的顶端横幅（Chrome/Edge 才支持目录绑定，不支持时整条不出现）。
+       内容由 app/main.js 的 renderBindBanner() 填：提示 + 自带一个「选择/重新授权」按钮。
+       横幅不挡地图，它在 header 下方占一行；绑定成功后自动消失。 -->
+  <div class="fx-banner" id="fx-bind-banner" style="display:none"></div>
+
   <div class="content">
     <div class="map-wrap">
       <div class="fx-notice" id="fx-notice"></div>
