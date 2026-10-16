@@ -134,6 +134,65 @@ eq(r7.result.ammo[0] <= 5 && r7.result.ammo[1] <= 5, true, '每队弹药不超�
 // => 弱队 5 场(30) + 强队 2 场(20) = 50
 eq(r7.result.net, 50, '最省油分配: 弱队打 5 场、强队打 2 场 = 50');
 
+// ---------- 4b. 弹药点（面板原文是红字「弹药-1」）----------
+console.log('\n[4b] 弹药点: 经过它要扣一发（= 少一次作战次数）');
+// 造一条 n 战链，可选在第 k 战之后插一个弹药点
+function makeChain(n, ammoAfterBattle) {
+  const m = { start: 'S0', nodes: { S0: { label: '起点', type: 'start', next: [] } } };
+  const order = ['S0'];
+  for (let i = 1; i <= n; i++) { m.nodes['B' + i] = { label: 'B' + i, type: 'battle', next: [] }; order.push('B' + i); }
+  for (let i = 0; i < order.length - 1; i++) {
+    m.nodes[order[i]].next = [{ to: order[i + 1], prob: '大', raw: '无条件', cond: [] }];
+  }
+  if (ammoAfterBattle >= 1 && ammoAfterBattle <= n) {
+    const id = 'A' + ammoAfterBattle, after = 'B' + ammoAfterBattle;
+    m.nodes[id] = { label: id, type: 'supply', effect: { kind: 'ammo', delta: -1, raw: '弹药-1' },
+                    next: m.nodes[after].next };
+    m.nodes[after].next = [{ to: id, prob: '大', raw: '无条件', cond: [] }];
+    order.splice(order.indexOf(after) + 1, 0, id);
+  }
+  return { map: m, nodes: order };
+}
+const c5 = makeChain(5, 0), c5a = makeChain(5, 1);
+const a5 = graph.analyzeRoute(c5.map, c5.nodes), a5a = graph.analyzeRoute(c5a.map, c5a.nodes);
+eq(a5.battles.length, 5, '对照: 5 场战斗（无弹药点）');
+eq(a5a.battles.length, 5, '弹药点场景: 同样是 5 场战斗');
+eq(graph.supplyKind(c5a.map.nodes['A1']), 'ammo', 'supplyKind 认出弹药点');
+eq(graph.supplyKind(tinyMap.nodes['R1']), 'fuel', '不写 effect 的补给点仍按返油处理');
+eq(graph.supplyKind({ type: 'supply', effect: { kind: 'heal', raw: '可回复血量' } }), 'heal', 'supplyKind 认出回血点');
+eq(graph.supplyKind({ type: 'supply', effect: { kind: 'heal' } }) === 'fuel', false, '回血点不会被当成油点');
+eq(a5a.ammoPoints.map(o => o.node + '@' + o.basisNode), ['A1@B1'], '弹药点基数是它前面那场战斗 B1');
+eq(a5a.oilPoints.length, 0, '弹药点不算油点（不参与返油）');
+eq(a5a.ammoAfter[0], 1, '第 1 场战斗后面跟了 1 个弹药点');
+// 核心: 同一份分配，没弹药点时合法、有弹药点时就不合法 —— 那一队少了一次
+eq(oil.ammoLedger(a5, [0, 0, 0, 0, 0]).ok, true, '没有弹药点: 1 队打满 5 战合法');
+eq(oil.ammoLedger(a5a, [0, 0, 0, 0, 0]).ok, false, '有弹药点: 1 队只能打 4 战，第 5 战接不上');
+eq(oil.ammoLedger(a5a, [0, 0, 0, 0, 1]).ok, true, '把第 5 战交给 2 队就合法（1 队 4 战）');
+eq(oil.checkAssignment(a5a, tinyForm, [0, 0, 0, 0, 0]) !== null, true, 'checkAssignment 报出不合法');
+eq(oil.checkAssignment(a5a, tinyForm, [0, 0, 0, 0, 1]), null, 'checkAssignment 认这条分配合法');
+// 扣的是"上一战那一队"
+const ledToll = oil.ammoLedger(a5a, [1, 0, 0, 0, 0]);
+eq(ledToll.tolls.length, 1, '产生 1 条扣弹明细');
+eq(ledToll.tolls[0].team, 1, '扣的是第 1 战（B1）的出战队伍 = 2 队');
+eq(ledToll.tolls[0].applied, true, '这一发正常扣掉');
+eq(ledToll.ammo, [4, 2], '2 队 = 1 战 + 扣 1 发 = 2；1 队 4 战');
+// 末尾的弹药点不能把已经合法的路线误报成超限（判定只在"要打这一场"时做）
+const tailA = (() => { const c = makeChain(5, 5); return graph.analyzeRoute(c.map, c.nodes); })();
+eq(tailA.ammoPoints.length, 1, '末尾也放了一个弹药点');
+eq(oil.ammoLedger(tailA, [0, 0, 0, 0, 0]).ok, true, '5 战本身都合法，末尾弹药点不再追加战斗，不算违规');
+// ≤4 战 + 弹药点：上限不紧，最省油结果与没有弹药点时一致
+const c4a = makeChain(4, 1), c4 = makeChain(4, 0);
+const fourWith = graph.analyzeRoute(c4a.map, c4a.nodes), fourWithout = graph.analyzeRoute(c4.map, c4.nodes);
+eq(fourWith.battles.length, 4, '对照: 4 战路线');
+eq(oil.autoAssign(fourWith, twoForm, twoShips, 'x1').result.net,
+   oil.autoAssign(fourWithout, twoForm, twoShips, 'x1').result.net,
+   '≤4 战时弹药点不改变最省油结果（上限不紧）');
+// 早退界: 总消耗 = 战斗数 + 弹药点数，超过 10 直接判不可行
+const cBig = makeChain(10, 1);
+const bigRes = oil.autoAssign(graph.analyzeRoute(cBig.map, cBig.nodes), twoForm, twoShips, 'x1');
+eq(bigRes.ok, false, '10 战 + 1 个弹药点 = 11 发 > 两队合计 10 发，判不可行');
+eq(/弹药点/.test(bigRes.reason), true, '理由点明是弹药点扣弹，而不是笼统的走不通');
+
 // ---------- 5. 真实地图全路线 ----------
 console.log('\n[5] 真实地图（博览会的奇妙相遇/地狱EX）');
 global.window = {};
@@ -155,6 +214,26 @@ routes.forEach(r => {
 });
 eq(withOil, 6, '含油点的路线 6 条');
 eq(maxBattles, 9, '最长路线 9 战');
+
+// 「落霞枫影 / 地狱EX」: D 是弹药点，H/K 是油点 —— 两类补给点在同一张图里
+const lxfy = global.window.FX_MAPS.find(m => m.id === 'luoxiafengying-dex');
+eq(!!lxfy, true, '落霞枫影已注册');
+eq(graph.enumerateRoutes(lxfy).length, 8, '落霞枫影 8 条路线');
+const lxfyA = graph.analyzeRoute(lxfy, ['START', 'A', 'C', 'D', 'E', 'F', 'G', 'I', 'K', 'M']);
+eq(lxfyA.battles.length, 7, '落霞枫影 A→C→D→E→F→G→I→K→M: 7 场战斗');
+eq(lxfyA.ammoPoints.map(o => o.node + '@' + o.afterBattle + '<' + o.basisNode), ['D@2<C'], 'D 是弹药点，基数是 C');
+eq(lxfyA.oilPoints.map(o => o.node), ['K'], '这条路只有 K 是油点，D 不算油点');
+// 末战 M 是 boss，必须由强队（twoForm.strongTeam = 1）打
+const lxfyAssign = [0, 1, 0, 1, 0, 1, 1];
+const lxfyRes = oil.compute(lxfyA, twoForm, twoShips, lxfyAssign, 'x1');
+eq(lxfyRes.refunds.length, 1, '弹药点不产生返油（只有 K 一条返油）');
+eq(lxfyRes.refunds[0].node, 'K', '返油来自 K');
+eq(lxfyRes.tolls.length, 1, '弹药点产生一条扣弹明细');
+eq(lxfyRes.tolls[0].team, 1, 'D 扣的是它前面那场 C 的出战队伍（2队）');
+eq(lxfyRes.tolls[0].applied, true, '这一发正常扣掉');
+eq(lxfyRes.ammo[0] + lxfyRes.ammo[1], 8, '7 场战斗 + 1 个弹药点 = 8 发');
+eq(oil.checkAssignment(lxfyA, twoForm, lxfyAssign), null, '这条分配在新口径下仍然合法');
+eq(oil.checkAssignment(lxfyA, twoForm, [0, 1, 0, 1, 0, 1, 0]) !== null, true, '末战 boss 不给强队时仍报不合法');
 
 // 用一套编队跑通全部路线，确认自动分配都成立
 const realShips = ships;
@@ -381,6 +460,17 @@ eq(cond.normOp('≥'), '>=', 'normOp 把全角 ≥ 归一化成 >=');
 eq(cond.normOp('≤'), '<=', 'normOp 把全角 ≤ 归一化成 <=');
 eq(cond.normOp('<='), '<=', 'normOp 不动半角运算符');
 eq(cond.rangeOf({ scope: '舰队', kind: '舰种', key: '航母', op: '≥', n: 3 }), { lo: 3, hi: 12 }, '全角 ≥ 求出的区间正确');
+// 均速是实数: '<' / '>' 的边界不能按 n∓1 吸附，否则「均速 35.0」会被提示成不满足 <35.5，
+// 而 evaluate 判它 pass —— 提示与判定自相矛盾（就是落霞枫影 J→L 那个 35.5 阈值）
+eq(cond.isRealDim({ scope: '舰队', kind: '均速', op: '<', n: 35.5 }), true, '均速被识别为实数维度');
+eq(cond.isRealDim({ scope: '舰队', kind: '舰灵数', op: '<', n: 10 }), false, '舰灵数仍是整数维度');
+eq(cond.rangeOf({ scope: '舰队', kind: '均速', key: null, op: '<', n: 35.5 }), { lo: 0, hi: 35.49 }, '均速 <35.5 的区间上界 = 35.49');
+eq(cond.rangeOf({ scope: '舰队', kind: '均速', key: null, op: '>', n: 35.5 }), { lo: 35.51, hi: 99 }, '均速 >35.5 的区间下界 = 35.51');
+eq(cond.rangeOf({ scope: '舰队', kind: '均速', key: null, op: '<', n: 34 }), { lo: 0, hi: 33.99 }, '均速 <34 的上界 = 33.99');
+eq(cond.rangeVerdict(0, 35.49, { known: true, value: 35 }).state, 'pass', '均速 35.0 的提示判定 = 落在 <35.5 区间内');
+eq(cond.evaluate({ scope: '舰队', kind: '均速', key: null, op: '<', n: 35.5 },
+                  cond.buildContext({ avgSpeed: 35, teams: [] }, {})), 'pass', '均速 35.0 的实际求值也是 pass（两层一致）');
+eq(cond.rangeOf({ scope: '舰队', kind: '舰种', key: '航母', op: '<', n: 3 }), { lo: 0, hi: 2 }, '整数维度 <3 仍然吸附成 ≤2');
 eq(cond.evaluate({ scope: '舰队', kind: '舰种', key: '航母', op: '≥', n: 3 }, ctx), 'fail', '全角 ≥ 求值：航母=2 不满足 ≥3');
 eq(cond.evaluate({ scope: '舰队', kind: '舰种', key: '航母', op: '≥', n: 2 }, ctx), 'pass', '全角 ≥ 求值：航母=2 满足 ≥2');
 eq(cond.analyze([{ scope: '舰队', kind: '舰种', key: '航母', op: '≥', n: 3 },

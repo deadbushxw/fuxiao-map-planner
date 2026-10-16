@@ -382,7 +382,7 @@
     S.assign = assign.slice();
 
     var assignBox = h('div', { class: 'fx-assign' });
-    assignBox.appendChild(h('div', { class: 'fx-sec-title', text: '出战分配（每队上限 5 战，boss 必须强队）' }));
+    assignBox.appendChild(h('div', { class: 'fx-sec-title', text: '出战分配（每队上限 5 战，经过弹药点再扣一发；boss 必须强队）' }));
     battles.forEach(function (nid, i) {
       var isBoss = !!analysis.bossSet[nid];
       var row = h('div', { class: 'fx-assign-row' }, [
@@ -440,6 +440,12 @@
       h('span', { text: '弹药（两种模式相同）' }),
       h('b', { text: '1队 ' + res1.ammo[0] + '/5　2队 ' + res1.ammo[1] + '/5' })
     ]));
+    // 弹药点：写清"扣的是哪一场的哪一队"，玩家才知道那一队因此少打一次
+    (res1.tolls || []).forEach(function (af) {
+      oilBox.appendChild(h('div', { class: 'fx-muted', text: '弹药点：第' + af.afterBattle + '战后（基准 ' +
+        af.battle + '，' + (af.team + 1) + '队）弹药 -1' +
+        (af.applied ? '（该队少一次作战次数）' : '（该队弹药已满，这一发无处可扣）') }));
+    });
     oilBox.appendChild(h('div', { class: 'fx-muted', text: '出战队伍油耗：1队 ' + res1.teamOil[0] + '　2队 ' + res1.teamOil[1] }));
     res1.refunds.forEach(function (rf) {
       oilBox.appendChild(h('div', { class: 'fx-muted', text: '油点 ' + rf.node + '：第' + rf.afterBattle + '战后（基准 ' +

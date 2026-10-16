@@ -57,15 +57,25 @@
     return DOMAIN[cond.scope + '|' + cond.kind + '|'] || { lo: 0, hi: 12 };
   }
 
+  /* 均速是实数（航速的算术平均，会出现 x.5），其余维度都是整数计数。
+   * '<' / '>' 的边界只在整数维度上能按 n∓1 吸附：整数维度上 <3 就是 ≤2，
+   * 但实数维度上 <35.5 并不等于 ≤34.5 —— 按旧写法，「均速 35.0」会被算成
+   * 不落在 <35.5 的区间里，而求值侧 evaluate() 判它 pass，两边自相矛盾。
+   * 求值侧把均速四舍五入到 2 位小数（见 valueOf），所以实数维度的开边界取 0.01 步长。 */
+  var REAL_STEP = 0.01;
+  var round2 = function (v) { return Math.round(v * 100) / 100; };
+  function isRealDim(cond) { return dimKey(cond) === '舰队|均速|'; }
+
   /** 单条条件允许的取值区间（闭区间） */
   function rangeOf(cond) {
     var d = domainOf(cond), n = Number(cond.n);
+    var real = isRealDim(cond);
     switch (normOp(cond.op)) {
-      case '<':  return { lo: d.lo, hi: Math.min(d.hi, n - 1) };
+      case '<':  return { lo: d.lo, hi: Math.min(d.hi, real ? round2(n - REAL_STEP) : n - 1) };
       case '<=': return { lo: d.lo, hi: Math.min(d.hi, n) };
       case '=':  return { lo: Math.max(d.lo, n), hi: Math.min(d.hi, n) };
       case '>=': return { lo: Math.max(d.lo, n), hi: d.hi };
-      case '>':  return { lo: Math.max(d.lo, n + 1), hi: d.hi };
+      case '>':  return { lo: Math.max(d.lo, real ? round2(n + REAL_STEP) : n + 1), hi: d.hi };
       default:   return { lo: d.lo, hi: d.hi };
     }
   }
@@ -250,7 +260,7 @@
 
   return {
     DOMAIN: DOMAIN, OP_LABEL: OP_LABEL, OP_ALIAS: OP_ALIAS, normOp: normOp,
-    dimKey: dimKey, domainOf: domainOf, rangeOf: rangeOf, opOK: opOK,
+    dimKey: dimKey, domainOf: domainOf, rangeOf: rangeOf, opOK: opOK, isRealDim: isRealDim,
     dimMeta: dimMeta, dimLabel: dimLabel, valueOfDim: valueOfDim, rangeVerdict: rangeVerdict,
     dimHops: dimHops,
     buildContext: buildContext, valueOf: valueOf, evaluate: evaluate,

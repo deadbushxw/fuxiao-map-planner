@@ -66,7 +66,7 @@ shots/ tools/preview/ tools/batches/   采集中间产物，gitignore，绝不�
 npm test                        # = validate_map + validate_ships + test_core（零依赖，不需要 install）
 node tools/validate_map.js       # 图校验 + 路线枚举，要 0 错误 0 警告
 node tools/validate_ships.js     # 舰灵库校验（舰种/国籍逐字、油耗、id 重复）；空库放行
-node tools/test_core.js          # 核心逻辑单测（210 项）
+node tools/test_core.js          # 核心逻辑单测（255 项）
 node tools/plan_coverage.js --allow-retreat --verify   # 覆盖规划命令行版 + 暴力枚举交叉验证
 npm run privacy                  # 发布前自查：本机路径 / 账号数据 / 私人口吻，命中即非 0
 node tools/check_privacy.js --list   # 只列出会被提交的文件
@@ -81,10 +81,17 @@ python tools/serve.py            # http 预览（带 Cache-Control: no-store）�
    `check_privacy.js` 会直接检查这两行；把真实数据写进去 = 泄露账号数据
 2. **同一艘船不能编入两个队伍**。重复编入会让「两队合并」的计数重复、条件和油耗静默算错，
    增删必须走 `FX.store`
-3. **带路条件是单谓词**（一条岔口一条 `cond`），求值基准是**两队合并**；运算符要同时认全角
+3. **带路条件**：`next[].cond` 是谓词数组，**多条谓词是「且」**（一条岔口通常一条，
+   落霞枫影的 G→I 是两条：驱逐≥3 且 <八咫>≥4）；求值基准是**两队合并**；运算符要同时认全角
    `≥ ≤` 和半角 `>= <=`（游戏原文是全角，曾因只认半角导致条件恒判失败）
 4. **油耗**：油点返还取「上一个战斗节点出战队伍」的一半、向下取整；三倍是**先乘三再取整**
    （F=55 时一倍返 27、三倍返 82）；每队每轮 ≤5 战；BOSS 点必须强队
+4b. **补给点有三种效果**，游戏里都叫「补给点」，靠 `effect.kind` + 图标区分（油点=绿色油罐、
+   弹药点=金色子弹、回血点=绿色爱心）：油点 `fuel`（返上一战一半油）、
+   弹药点 `ammo`（**扣**它前面那个战斗节点的出战队伍 1 发弹药 = 那一队少一次作战次数，
+   面板是红字「弹药-1」，**不是**补给）、回血点 `heal`（回血，不进油耗/弹药模型）。
+   不写 `effect` 的补给点按 `fuel` 处理（老数据兼容）。
+   判油点/弹药点一律用 `graph.supplyKind()` / `graph.isFuelPoint()`，不要自己写 `type === 'supply'`
 5. **阵营名逐字**：`凤棲` 是「木 + 妻」不是「凤栖」（AI识别错过）；`纳榭尔` 的「榭」是「木 + 射」。
    地图数据引用的阵营必须都在 `data/factions.js` 里
 6. **`file://` 兼容**：不许引入 ES module / `fetch`（除非带降级）；`<script src>` 在 `file://` 下

@@ -15,6 +15,21 @@
 
   function isBattle(node) { return !!BATTLE_TYPES[node && node.type]; }
 
+  /** 补给点的效果分类：'fuel'(返油) | 'ammo'(弹药-1) | 其它按 effect.kind 原样返回。
+   *  游戏里三类补给点（油点 / 弹药点 / 回血点）都叫「补给点」，靠图标与效果文本区分，
+   *  所以类型仍是 'supply'，差别只在 effect.kind。
+   *  约定: 没写 effect 的补给点按 'fuel' 处理（tools/test_core.js 的隔离场景依赖这一条）。 */
+  function supplyKind(node) {
+    if (!node || node.type !== 'supply') return null;
+    var e = node.effect;
+    if (!e) return 'fuel';
+    return e.kind || 'fuel';
+  }
+
+  /** 是否是「返燃料」的补给点。弹药点/回血点不返油，不能当油点参与
+   *  "返上一战一半油耗"的计算。 */
+  function isFuelPoint(node) { return supplyKind(node) === 'fuel'; }
+
   /** 取 a -> b 这条边（没有则 null） */
   function edgeBetween(map, a, b) {
     var outs = (map.nodes[a] && map.nodes[a].next) || [];
@@ -64,12 +79,27 @@
 
     var oilPoints = [];
     for (var j = 0; j < nodes.length; j++) {
-      if (map.nodes[nodes[j]].type !== 'supply') continue;
+      if (!isFuelPoint(map.nodes[nodes[j]])) continue;
       var ord = 0, basis = null;
       for (var k = 0; k < j; k++) {
         if (isBattle(map.nodes[nodes[k]])) { ord++; basis = nodes[k]; }
       }
       oilPoints.push({ node: nodes[j], afterBattle: ord, basisNode: basis, ordinal: ord });
+    }
+
+    /* 弹药点：效果是「使该点前一个战斗节点的出战队伍弹药 -1」（游戏面板原文「弹药-1」）。
+     * ammoPoints 与 oilPoints 同构；ammoAfter[i] = 第 i 场战斗紧后跟的弹药点个数，
+     * 给 app/oil.js 的弹药台账直接按战斗序号取用，不必自己再走一遍节点序列。 */
+    var ammoPoints = [], ammoAfter = [];
+    for (var b = 0; b < battles.length; b++) ammoAfter.push(0);
+    for (var j2 = 0; j2 < nodes.length; j2++) {
+      if (supplyKind(map.nodes[nodes[j2]]) !== 'ammo') continue;
+      var ord2 = 0, basis2 = null;
+      for (var k2 = 0; k2 < j2; k2++) {
+        if (isBattle(map.nodes[nodes[k2]])) { ord2++; basis2 = nodes[k2]; }
+      }
+      ammoPoints.push({ node: nodes[j2], afterBattle: ord2, basisNode: basis2 });
+      if (basis2 !== null) ammoAfter[ord2 - 1]++;
     }
 
     var conditions = [];
@@ -85,6 +115,8 @@
       battleIndex: battleIndex,
       bossSet: bossSet,
       oilPoints: oilPoints,
+      ammoPoints: ammoPoints,
+      ammoAfter: ammoAfter,
       conditions: conditions
     };
   }
@@ -125,7 +157,7 @@
 
   return {
     BATTLE_TYPES: BATTLE_TYPES, MAX_NODES: MAX_NODES,
-    isBattle: isBattle, edgeBetween: edgeBetween,
+    isBattle: isBattle, isFuelPoint: isFuelPoint, supplyKind: supplyKind, edgeBetween: edgeBetween,
     enumerateRoutes: enumerateRoutes, analyzeRoute: analyzeRoute,
     routeConds: routeConds, routeKey: routeKey,
     armorList: armorList, bossTotal: bossTotal, armorText: armorText

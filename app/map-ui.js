@@ -58,6 +58,47 @@
     }, g);
   }
 
+  /* 弹药点：金色子弹。游戏里油点是绿色油罐、弹药点是金色子弹，这里跟着游戏走，
+   * 用颜色把两类「补给点」分开。纯内联 SVG，不引图片，file:// 下一样能用。 */
+  var AMMO_COLOR = { fill: '#ffd24a', stroke: '#fff3c4' };
+
+  function drawBullet(g, cx, cy, r) {
+    var col = AMMO_COLOR;
+    // 弹头（上）
+    el('path', {
+      d: 'M ' + cx + ' ' + (cy - r * 0.94) +
+         ' L ' + (cx + r * 0.33) + ' ' + (cy - r * 0.28) +
+         ' L ' + (cx - r * 0.33) + ' ' + (cy - r * 0.28) + ' z',
+      fill: col.fill, stroke: col.stroke, 'stroke-width': 2, 'stroke-linejoin': 'round'
+    }, g);
+    // 弹体（下）
+    el('rect', { x: cx - r * 0.33, y: cy - r * 0.28, width: r * 0.66, height: r * 0.74,
+                 fill: col.fill, stroke: col.stroke, 'stroke-width': 2 }, g);
+    // 弹壳底缘
+    el('rect', { x: cx - r * 0.42, y: cy + r * 0.42, width: r * 0.84, height: r * 0.2, rx: r * 0.05,
+                 fill: col.fill, stroke: col.stroke, 'stroke-width': 2 }, g);
+  }
+
+  /* 回血点：绿色爱心 + 右下角「+」。游戏里油点是绿色油罐、弹药点是金色子弹、
+   * 回血点是爱心 —— 三类在游戏里都叫「补给点」，这里跟着游戏用图标区分。 */
+  function drawHeal(g, cx, cy, r, col) {
+    el('path', {
+      d: 'M ' + cx + ' ' + (cy + r * 0.78) +
+         ' C ' + (cx - r * 1.05) + ' ' + (cy - r * 0.10) + ' ' +
+                 (cx - r * 0.60) + ' ' + (cy - r * 0.85) + ' ' +
+                 cx + ' ' + (cy - r * 0.26) +
+         ' C ' + (cx + r * 0.60) + ' ' + (cy - r * 0.85) + ' ' +
+                 (cx + r * 1.05) + ' ' + (cy - r * 0.10) + ' ' +
+                 cx + ' ' + (cy + r * 0.78) + ' z',
+      fill: col.fill, stroke: col.stroke, 'stroke-width': 3, 'stroke-linejoin': 'round'
+    }, g);
+    var bx = cx + r * 0.62, by = cy + r * 0.52, br = r * 0.36;
+    el('circle', { cx: bx, cy: by, r: br, fill: col.fill, stroke: col.stroke, 'stroke-width': 3 }, g);
+    var t = r * 0.09, len = r * 0.22;
+    el('rect', { x: bx - t, y: by - len, width: t * 2, height: len * 2, fill: '#eaffdf' }, g);
+    el('rect', { x: bx - len, y: by - t, width: len * 2, height: t * 2, fill: '#eaffdf' }, g);
+  }
+
   function drawPin(g, cx, cy, r, col) {
     el('circle', { cx: cx, cy: cy - r * 0.3, r: r * 0.55, fill: col.fill, stroke: col.stroke, 'stroke-width': 2 }, g);
     el('path', {
@@ -70,7 +111,12 @@
   function drawNodeShape(g, node, cx, cy, r) {
     var col = COLOR[node.type] || COLOR.battle;
     if (node.type === 'boss') return drawSkull(g, cx, cy, r, col);
-    if (node.type === 'supply') return drawCan(g, cx, cy, r, col);
+    if (node.type === 'supply') {
+      var sk = FX.graph && FX.graph.supplyKind ? FX.graph.supplyKind(node) : 'fuel';
+      if (sk === 'ammo') return drawBullet(g, cx, cy, r);
+      if (sk === 'heal') return drawHeal(g, cx, cy, r, col);
+      return drawCan(g, cx, cy, r, col);
+    }
     if (node.type === 'start') return drawPin(g, cx, cy, r, col);
     el('polygon', { points: hexPoints(cx, cy, r), fill: 'none', stroke: col.stroke, 'stroke-width': 7 }, g);
     el('polygon', { points: hexPoints(cx, cy, r * 0.82), fill: 'none', stroke: col.fill, 'stroke-width': 5 }, g);
@@ -83,7 +129,15 @@
       var bn = FX.graph && FX.graph.bossTotal ? FX.graph.bossTotal(node) : 0;
       lines.push('装甲: ' + (armors.join('+') || '?') + (bn > 1 ? '（' + bn + ' 个 BOSS）' : '') + '  LV.' + (node.lv || '?'));
     }
-    if (node.type === 'supply') lines.push(node.effect ? '可取得 ' + node.effect.percent + '% 燃料' : '补给点');
+    // 补给点按效果分三类（油点 / 弹药点 / 回血点），游戏里都叫「补给点」，靠图标与效果文本区分
+    if (node.type === 'supply') {
+      var se = node.effect;
+      var sk = FX.graph && FX.graph.supplyKind ? FX.graph.supplyKind(node) : ((se && se.kind) || 'fuel');
+      if (!se) lines.push('补给点');
+      else if (sk === 'fuel') lines.push('可取得 ' + se.percent + '% 燃料');
+      else if (sk === 'ammo') lines.push((se.raw || '弹药-1') + '（经过它要扣 1 发弹药：该点前一个战斗节点的出战队伍少一次作战次数）');
+      else lines.push(se.raw || '补给点');
+    }
     (node.next || []).forEach(function (e) {
       lines.push('→ ' + e.to + '：' + (e.raw || '') + (e.prob ? '（概率 ' + e.prob + '）' : ''));
     });
@@ -193,6 +247,14 @@
                                 'font-weight': 'bold', fill: '#8ce06f',
                                 stroke: '#0a1a2a', 'stroke-width': 5, 'paint-order': 'stroke' }, g);
           ot.textContent = '第' + op.afterBattle + '战后';
+        }
+        // 弹药点：同一套位置显示「弹药-1」，颜色跟着子弹走
+        var ap = (analysis.ammoPoints || []).filter(function (o) { return o.node === id; })[0];
+        if (ap) {
+          var at = el('text', { x: n.x, y: n.y + 58, 'text-anchor': 'middle', 'font-size': 26,
+                                'font-weight': 'bold', fill: '#ffd24a',
+                                stroke: '#0a1a2a', 'stroke-width': 5, 'paint-order': 'stroke' }, g);
+          at.textContent = '弹药-1';
         }
       }
 

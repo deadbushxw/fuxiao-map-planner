@@ -104,16 +104,24 @@ let i = 0;
 for (const p of paths) {
   i++;
   const battles = p.filter(id => BATTLE.has(N[id].type));
-  const supplies = p.filter(id => N[id].type === 'supply');
+  const supplies = p.filter(id => graph.isFuelPoint(N[id]));
   const supplyInfo = supplies.map(sid => {
     const idx = p.indexOf(sid);
     let ord = 0, prev = null;
     for (let k = 0; k < idx; k++) if (BATTLE.has(N[p[k]].type)) { ord++; prev = p[k]; }
     return `${sid}(第${ord}战后, 基准=${prev || '无'})`;
   });
+  // 弹药点（effect.kind='ammo'）：不返油，只把它前面那场战斗的出战队伍弹药减 1
+  const ammoInfo = p.filter(id => graph.supplyKind(N[id]) === 'ammo').map(aid => {
+    const idx = p.indexOf(aid);
+    let ord = 0, prev = null;
+    for (let k = 0; k < idx; k++) if (BATTLE.has(N[p[k]].type)) { ord++; prev = p[k]; }
+    return `${aid}(第${ord}战后, 基准=${prev || '无'})`;
+  });
   console.log(`\n  #${i} ${p.join(' -> ')}`);
   console.log(`     战斗 ${battles.length} 场: ${battles.join(', ')}   [终点 ${p[p.length - 1]} 装甲=${graph.armorText(N[p[p.length - 1]])}]`);
   console.log(`     油点: ${supplyInfo.length ? supplyInfo.join('; ') : '无'}`);
+  if (ammoInfo.length) console.log(`     弹药点: ${ammoInfo.join('; ')}`);
   const conds = [];
   for (let k = 0; k + 1 < p.length; k++) {
     const e = (N[p[k]].next || []).find(x => x.to === p[k + 1]);

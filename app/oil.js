@@ -5,6 +5,11 @@
  *   2. 每队每轮最多打 5 战，即"出战一次消耗 1 弹药"，上限 5
  *   3. 三倍模式: 只放大油耗和掉落, 不改变战斗场次、也不改弹药消耗（仍 1/战）
  *   4. 油点返还"上一个战斗节点的出战队伍"的一半油, 且向下取整
+ *   5. 弹药点**扣**"该点前一个战斗节点的出战队伍"1 发弹药（游戏面板原文是红字「弹药-1」）:
+ *      扣掉的就是上面第 2 条里的作战次数 —— 那一队少打一次。于是过完弹药点之后，
+ *      该队的剩余次数 = 5 − 已打 − 1；同一场战斗后面跟了多个弹药点就各扣 1。
+ *      它不改变油耗公式、也不影响返油。上限判定只发生在"要打这一场"的时候，
+ *      所以路线末尾紧跟的弹药点不会把已经合法的路线误报成超限。
  *
  * 油耗公式（F 为某一场出战队伍的全部舰灵油耗之和）:
  *   一倍: 单战消耗 F     油点返还 ⌊F/2⌋
@@ -42,6 +47,38 @@
   }
 
   /**
+   * 沿路线顺序核对两队弹药（弹药台账）。
+   * 每场战斗消耗 1 发；每经过一个弹药点再扣 1 发，扣在"该点前面那个战斗节点的出战队伍"
+   * 头上（= 那一队少一次作战次数）。上限判定只在"要打这一场"时做：
+   * 该队已用满 5 发还想再打，就是违规；这样路线末尾紧跟的弹药点不会误报。
+   * ammoAfter[i] 由 app/graph.js analyzeRoute() 给出，= 第 i 场战斗后面跟的弹药点个数。
+   * 计数封顶在 AMMO_CAP：弹药只有 5 发，扣到 5 之后这一发无处可扣（照样记进 tolls）。
+   * 返回 { ok, reason, ammo, tolls }；不合法时 ammo 仍是走完全程的计数，便于界面照常显示。
+   */
+  function ammoLedger(analysis, assign) {
+    var used = [0, 0], tolls = [], violation = null;
+    var after = analysis.ammoAfter || [];
+    var battles = analysis.battles || [];
+    for (var i = 0; i < battles.length; i++) {
+      var t = assign[i];
+      if (used[t] >= AMMO_CAP && !violation) {
+        violation = (t + 1) + '队要打第 ' + (i + 1) + ' 战（' + battles[i] + '）时弹药已用满 ' +
+          used[t] + ' 发（每队每轮上限 ' + AMMO_CAP + ' 发），这一战接不上';
+      }
+      if (used[t] < AMMO_CAP) used[t] += AMMO_PER_BATTLE;
+      for (var r = 0; r < (after[i] || 0); r++) {
+        var room = used[t] < AMMO_CAP;
+        if (room) used[t] += AMMO_PER_BATTLE;
+        tolls.push({
+          afterBattle: i + 1, battle: battles[i], team: t,
+          applied: room, ammoAfter: used[t]
+        });
+      }
+    }
+    return { ok: !violation, reason: violation, ammo: used, tolls: tolls };
+  }
+
+  /**
    * 给定分配方案计算油耗与弹药。
    * assign: 长度等于战斗数的数组，元素为 0|1（出战队伍索引）
    */
@@ -51,13 +88,10 @@
     var mult = (mode === 'x3') ? 3 : 1;
 
     var battles = analysis.battles;
-    var ammo = [0, 0];
     var gross = 0;
-    for (var i = 0; i < battles.length; i++) {
-      var t = assign[i];
-      ammo[t] += AMMO_PER_BATTLE;
-      gross += F[t] * mult;
-    }
+    for (var i = 0; i < battles.length; i++) gross += F[assign[i]] * mult;
+    var led = ammoLedger(analysis, assign);
+    var ammo = led.ammo;
 
     var refunds = [];
     var totalRefund = 0;
@@ -77,23 +111,20 @@
 
     return {
       mode: mode || 'x1', mult: mult,
-      teamOil: F, assign: assign.slice(), ammo: ammo,
+      teamOil: F, assign: assign.slice(), ammo: ammo, tolls: led.tolls,
       gross: gross, refund: totalRefund, net: gross - totalRefund, refunds: refunds
     };
   }
 
-  /** 检查一个分配方案是否合法 */
+  /** 检查一个分配方案是否合法（弹药按沿途台账判，经过弹药点要扣一发） */
   function checkAssignment(analysis, formation, assign) {
     var strong = (formation && formation.strongTeam) || 0;
-    var ammo = [0, 0];
     for (var i = 0; i < analysis.battles.length; i++) {
       var nodeId = analysis.battles[i];
       if (analysis.bossSet[nodeId] && assign[i] !== strong) return 'boss 点必须由强队出战';
-      ammo[assign[i]]++;
     }
-    if (ammo[0] > AMMO_CAP) return '1队出战 ' + ammo[0] + ' 次，超过每队上限 ' + AMMO_CAP;
-    if (ammo[1] > AMMO_CAP) return '2队出战 ' + ammo[1] + ' 次，超过每队上限 ' + AMMO_CAP;
-    return null;
+    var led = ammoLedger(analysis, assign);
+    return led.ok ? null : led.reason;
   }
 
   /**
@@ -102,12 +133,24 @@
    */
   function autoAssign(analysis, formation, shipMap, mode) {
     var n = analysis.battles.length;
-    if (n > AMMO_CAP * 2) {
-      return { ok: false, reason: '本路线 ' + n + ' 场战斗，两队弹药上限合计只有 ' + (AMMO_CAP * 2) + ' 场，无法走通' };
+    // 弹药点要扣一发，所以总消耗 = 战斗数 ＋ 弹药点数，两队合计只有 CAP*2 发。
+    // 这两条只是必要条件（用来快速给出理由），真正的判定交给下面的穷举 + 台账。
+    var after = analysis.ammoAfter || [];
+    var tollTotal = after.reduce(function (s, v) { return s + (v || 0); }, 0);
+    if (n + tollTotal > AMMO_CAP * 2) {
+      return { ok: false, reason: '本路线 ' + n + ' 场战斗' +
+        (tollTotal ? ' ＋ ' + tollTotal + ' 个弹药点扣弹' : '') + ' = ' + (n + tollTotal) +
+        ' 发，超过两队弹药上限合计 ' + (AMMO_CAP * 2) + ' 发，无法走通' };
     }
+    // 强队必须打满所有 boss；紧跟 boss 后面的弹药点也只能扣在强队头上
     var bossCount = analysis.battles.filter(function (id) { return analysis.bossSet[id]; }).length;
-    if (bossCount > AMMO_CAP) {
-      return { ok: false, reason: '本路线有 ' + bossCount + ' 个 boss 点，强队弹药上限 ' + AMMO_CAP + ' 场，无法全部由强队打' };
+    var bossTolls = (analysis.ammoPoints || []).filter(function (ap) {
+      return ap.basisNode && analysis.bossSet[ap.basisNode];
+    }).length;
+    if (bossCount + bossTolls > AMMO_CAP) {
+      return { ok: false, reason: '本路线有 ' + bossCount + ' 个 boss 点' +
+        (bossTolls ? ' ＋ ' + bossTolls + ' 个紧跟 boss 的弹药点' : '') + ' 共 ' + (bossCount + bossTolls) +
+        ' 发，强队弹药上限只有 ' + AMMO_CAP + ' 发，无法全部由强队打' };
     }
 
     var strong = (formation && formation.strongTeam) || 0;
@@ -116,14 +159,13 @@
     for (var mask = 0; mask < total; mask++) {
       var assign = [];
       for (var i = 0; i < n; i++) assign.push((mask >> i) & 1);
-      // 先快速检查约束
-      var ammo = [0, 0], bad = false;
+      var bad = false;
       for (var j = 0; j < n; j++) {
         if (analysis.bossSet[analysis.battles[j]] && assign[j] !== strong) { bad = true; break; }
-        ammo[assign[j]]++;
-        if (ammo[assign[j]] > AMMO_CAP) { bad = true; break; }
       }
       if (bad) continue;
+      // 沿途台账判弹药上限（经过弹药点要扣它前面那一场的一发）
+      if (!ammoLedger(analysis, assign).ok) continue;
       tried++;
       var r = compute(analysis, formation, shipMap, assign, mode);
       if (!best || r.net < best.result.net) best = { assign: assign, result: r };
@@ -139,7 +181,10 @@
 
   /* ---------- 一轮代币收益（只有「限时活动」版本有） ----------
    * boss 点 90 / 普通战斗点 40 / 非战斗点（起点、补给点）0。
-   * 数值是当前认为值，实测有出入就改这里，全项目只此一处。 */
+   * 已用游戏内掉落列表**靠后**那张可重复获得的代币卡实测确认（把列表滑到不能再滑一般就能看到，
+   * **不一定是最末尾一格**），与前一次活动观察一致；
+   * 注意别和同列表**第 0 槽「首通」卡**（逐点不同、只发一次）的数字搞混。
+   * 要改只改这里，全项目只此一处。 */
   var TOKEN_REWARD = { boss: 90, battle: 40 };
 
   /**
@@ -161,19 +206,23 @@
     return { total: total, bossCount: bossCount, battleCount: battleCount, detail: detail };
   }
 
-  /** 按强队优先 / 交替的朴素默认分配（给手动模式一个初始值） */
+  /** 按强队优先 / 交替的朴素默认分配（给手动模式一个初始值），同样按沿途台账排弹药 */
   function defaultAssign(analysis, formation) {
     var strong = (formation && formation.strongTeam) || 0;
     var n = analysis.battles.length;
-    var assign = [], ammo = [0, 0];
+    var after = analysis.ammoAfter || [];
+    var assign = [], used = [0, 0];
     for (var i = 0; i < n; i++) {
       var needStrong = analysis.bossSet[analysis.battles[i]];
       var t;
       if (needStrong) t = strong;
-      else if (ammo[strong] < AMMO_CAP) t = strong;
+      else if (used[strong] < AMMO_CAP) t = strong;
       else t = 1 - strong;
-      if (ammo[t] >= AMMO_CAP) t = 1 - t;
-      assign.push(t); ammo[t]++;
+      // 换队也满就维持原队 —— 让调用方看到"不合法"并提示，而不是悄悄排出超限的方案
+      if (!needStrong && used[t] >= AMMO_CAP && used[1 - t] < AMMO_CAP) t = 1 - t;
+      assign.push(t);
+      if (used[t] < AMMO_CAP) used[t]++;
+      for (var r = 0; r < (after[i] || 0); r++) if (used[t] < AMMO_CAP) used[t]++;
     }
     return assign;
   }
@@ -181,7 +230,7 @@
   return {
     AMMO_PER_BATTLE: AMMO_PER_BATTLE, AMMO_CAP: AMMO_CAP,
     TOKEN_REWARD: TOKEN_REWARD,
-    teamInfo: teamInfo, compute: compute, tokens: tokens,
+    teamInfo: teamInfo, compute: compute, tokens: tokens, ammoLedger: ammoLedger,
     checkAssignment: checkAssignment, autoAssign: autoAssign, defaultAssign: defaultAssign
   };
 });

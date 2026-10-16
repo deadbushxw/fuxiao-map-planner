@@ -1,6 +1,6 @@
 /* 拂晓：胜利之刻 —— 活动地图数据
  * 地图: 博览会的奇妙相遇 / 地狱EX
- * 版本形态: 限时活动 —— 有活动代币（掉落列表第0槽）和金船掉落UP。
+ * 版本形态: 限时活动 —— 有活动代币（第0槽是首通卡、只发一次；可重复获得的那张在掉落列表靠后位置）和金船掉落UP。
  *          档案（常驻）图这两项都没有，页面上的「限时活动 / 档案」开关就是干这个的，
  *          见 README「限时活动与档案」。地图数据一律按限时活动版本记录。
  * 数据来源: 游戏内逐节点点击读取（点节点 -> 「战斗点/战斗点(BOSS)/补给点/起始点」面板）
@@ -142,7 +142,7 @@ window.FX_MAPS.push({
     O: {
       label: "O", type: "boss", icon: "skull", x: 1357, y: 641, lv: 65,
       bosses: [ { type: "战列", count: 1, armor: "重甲" } ],
-      token: "活动代币（掉落列表第0槽 / 首通卡）",
+      token: "活动代币：第0槽是首通卡（只发一次，逐点不同）；可重复获得的那张在掉落列表靠后位置（滑到不能再滑一般能看到）",
       goldDrops: [ { name: "约克公爵", faction: "洛蒙瑞亚", shipType: "战列", shipClass: "英王乔治五世级", up: true } ],
       otherDropsGold: [], polluted: false,
       next: []
@@ -156,7 +156,7 @@ window.FX_MAPS.push({
     Q: {
       label: "Q", type: "boss", icon: "skull", x: 1396, y: 850, lv: 65,
       bosses: [ { type: "战巡", count: 1, armor: "中甲" } ],
-      token: "活动代币（掉落列表第0槽 / 首通卡）",
+      token: "活动代币：第0槽是首通卡（只发一次，逐点不同）；可重复获得的那张在掉落列表靠后位置（滑到不能再滑一般能看到）",
       goldDrops: [ { name: "沙恩霍斯特", faction: "奥鲁加", shipType: "战巡", shipClass: "沙恩霍斯特级", up: true } ],
       otherDropsGold: [], polluted: false,
       next: []
@@ -173,7 +173,7 @@ window.FX_MAPS.push({
       label: "S", type: "boss", icon: "skull", x: 1534, y: 546, lv: 65,
       // 这个点有两个 BOSS：轻巡(轻甲) + 战巡(中甲)。装甲类型不止一种，组队时要都考虑。
       bosses: [ { type: "轻巡", count: 1, armor: "轻甲" }, { type: "战巡", count: 1, armor: "中甲" } ],
-      token: "活动代币（掉落列表第0槽 / 首通卡）",
+      token: "活动代币：第0槽是首通卡（只发一次，逐点不同）；可重复获得的那张在掉落列表靠后位置（滑到不能再滑一般能看到）",
       goldDrops: [ { name: "格奈森瑙", faction: "奥鲁加", shipType: "战巡", shipClass: "沙恩霍斯特级", up: true } ],
       otherDropsGold: [], polluted: false,
       next: []
@@ -181,7 +181,7 @@ window.FX_MAPS.push({
   },
 
   /* 已知空缺 / 待确认:
-   *  1. 掉落列表第0槽（活动代币）的具体数量只确认了 S 点是 180；O/Q 未逐个读，
+   *  1. 掉落列表第0槽是**首通卡**（只发一次），它的数量只确认了 S 点是 180；O/Q 未逐个读，
    *     普通战斗点读到的是 80（A、D）。若需要精确值可再采一轮。
    *  2. 本图 3 个 boss 各只有 1 个金色掉落且都带 UP，故 polluted 全为 false。
    *     若某活动出现"两个金色掉落"，把非 UP 的放进 otherDropsGold 并把 polluted 置 true。

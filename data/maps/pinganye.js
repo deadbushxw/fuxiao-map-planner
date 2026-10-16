@@ -176,7 +176,7 @@ window.FX_MAPS.push({
     S: {
       label: "S", type: "boss", icon: "skull", x: 478, y: 777, lv: 65,
       bosses: [ { type: "装母", count: 1, armor: "重甲" } ],
-      token: "活动代币（限时活动版：掉落列表第0槽 / 首通卡）",
+      token: "活动代币（限时活动版）：第0槽是首通卡（只发一次，逐点不同）；可重复获得的那张在掉落列表靠后位置（滑到不能再滑一般能看到）",
       goldDrops: [ { name: "南达科他", faction: "尤奈特", shipType: "战列", shipClass: "南达科他级", up: true } ],
       otherDropsGold: [], polluted: false,
       next: []
@@ -186,7 +186,7 @@ window.FX_MAPS.push({
     T: {
       label: "T", type: "boss", icon: "skull", x: 355, y: 685, lv: 65,
       bosses: [ { type: "航母", count: 1, armor: "中甲" } ],
-      token: "活动代币（限时活动版：掉落列表第0槽 / 首通卡）",
+      token: "活动代币（限时活动版）：第0槽是首通卡（只发一次，逐点不同）；可重复获得的那张在掉落列表靠后位置（滑到不能再滑一般能看到）",
       goldDrops: [ { name: "新泽西", faction: "尤奈特", shipType: "战列", shipClass: "衣阿华级", up: true } ],
       otherDropsGold: [], polluted: false,
       next: []
