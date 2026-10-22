@@ -110,6 +110,7 @@ window.FX_MAPS.push({
     I: {
       label: "I", type: "supply", icon: "can", x: 958, y: 195,
       effect: { kind: "fuel", percent: 50, basis: "上一战斗节点的出战队伍油耗" },
+      terminal: true,
       next: []
     },
 
@@ -117,6 +118,7 @@ window.FX_MAPS.push({
     // 敌人: 轻巡×6 雷巡×6 重巡×6 轻母×3 航母×3，敌人等级 LV.65，建议索敌 189 / 建议制空 389
     J: {
       label: "J", type: "battle", icon: "hex", x: 1115, y: 873, lv: 65,
+      terminal: true,
       next: []
     },
 
@@ -162,6 +164,7 @@ window.FX_MAPS.push({
     Q: {
       label: "Q", type: "supply", icon: "can", x: 482, y: 965,
       effect: { kind: "fuel", percent: 50, basis: "上一战斗节点的出战队伍油耗" },
+      terminal: true,
       next: []
     },
 

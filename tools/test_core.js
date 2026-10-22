@@ -246,6 +246,36 @@ routes.forEach(r => {
 });
 eq(allOk, true, '全部 23 条路线都能给出合法出战分配' + (allOk ? '' : ' (' + reason + ')'));
 
+// 「电影大作战 / 地狱EX」: 手机横屏图（screen 2316x1080），补给点同时有油点与回血点
+const dyzdz = global.window.FX_MAPS.find(m => m.id === 'dianyingdazuozhan-dex');
+eq(!!dyzdz, true, '电影大作战已注册');
+eq(dyzdz.screen, { w: 2316, h: 1080 }, '电影大作战按手机横屏 2316x1080 记录坐标');
+const dyRoutes = graph.enumerateRoutes(dyzdz);
+eq(dyRoutes.length, 14, '电影大作战 14 条路线');
+const dyTerm = {};
+dyRoutes.forEach(r => { const t = r[r.length - 1]; dyTerm[t] = (dyTerm[t] || 0) + 1; });
+eq(Object.keys(dyTerm).sort().map(k => k + '=' + dyTerm[k]), ['I=1', 'M=3', 'P=5', 'Q=5'], '终点分布 I=1 M=3 P=5 Q=5');
+eq(graph.supplyKind(dyzdz.nodes.G), 'heal', 'G 是回血点（effect.kind=heal）');
+eq(graph.isFuelPoint(dyzdz.nodes.F), true, 'F 是油点');
+eq(graph.isFuelPoint(dyzdz.nodes.M), true, 'M 是油点（终点版式）');
+eq(graph.isFuelPoint(dyzdz.nodes.G), false, '回血点不算油点，不参与返油');
+const dyF = graph.analyzeRoute(dyzdz, ['START', 'A', 'B', 'C', 'E', 'F', 'J', 'L', 'M']);
+eq(dyF.battles.length, 6, '电影大作战 C→E→F→J→L→M: 6 场战斗（补给点不算战斗）');
+eq(dyF.oilPoints.map(o => o.node), ['F', 'M'], '这条路 F / M 两个油点');
+eq(graph.armorText(dyzdz.nodes.P), '中甲', '电影大作战 P 点装甲 = 中甲');
+eq(graph.armorText(dyzdz.nodes.Q), '轻甲', '电影大作战 Q 点装甲 = 轻甲');
+
+// 所有地图的节点坐标都必须落在各自 screen 记录的画面内（换设备分辨率时最容易错的地方）
+const outOfScreen = [];
+global.window.FX_MAPS.forEach(m => {
+  const sw = (m.screen && m.screen.w) || 1920, sh = (m.screen && m.screen.h) || 1080;
+  Object.keys(m.nodes).forEach(id => {
+    const n = m.nodes[id];
+    if (!(n.x >= 0 && n.x <= sw && n.y >= 0 && n.y <= sh)) outOfScreen.push(m.id + '/' + id);
+  });
+});
+eq(outOfScreen, [], '所有地图节点坐标都在各自 screen 画面内');
+
 // ---------- 6. 阵营表 ----------
 console.log('\n[6] 阵营表 / 舰种枚举');
 require(path.join(__dirname, '..', 'data', 'factions.js'));
@@ -263,13 +293,14 @@ eq(L('不存在的东西'), '不存在的东西', '未知阵营原样返回');
 eq(A('舰队中<奥鲁加>数量≥4'), '舰队中<奥鲁加（德）>数量≥4', '条件原文里的阵营被标注上国家');
 eq(A('旗舰为 战列<2'), '旗舰为 战列<2', '不含阵营的条件原文不被改动');
 
-// 地图里出现的阵营必须都在阵营表里 —— 这条能直接抓住"阵营名写错/写漏"这类问题
+// 地图里出现的阵营必须都在阵营表里 —— 这条能直接抓住"阵营名写错/写漏"这类问题。
+// 扫描的是**全部已注册地图**，不是只扫第一张，否则新图引用新阵营时会漏检。
 const usedFactions = new Set();
-Object.values(map.nodes).forEach(n => (n.next || []).forEach(e => (e.cond || []).forEach(c => {
+(global.window.FX_MAPS || []).forEach(m => Object.values(m.nodes).forEach(n => (n.next || []).forEach(e => (e.cond || []).forEach(c => {
   if (c.kind === '阵营' && c.key) usedFactions.add(c.key);
-})));
+}))));
 const unknownFactions = Array.from(usedFactions).filter(k => !F[k]);
-eq(unknownFactions, [], '地图条件引用的阵营都在阵营表里（实测引用: ' + Array.from(usedFactions).join('/') + '）');
+eq(unknownFactions, [], '所有地图条件引用的阵营都在阵营表里（实测引用: ' + Array.from(usedFactions).sort().join('/') + '）');
 
 // ---------- 7. 覆盖规划 ----------
 console.log('\n[7] 覆盖规划');
@@ -309,6 +340,23 @@ eq(coverage.classifyNodePixels({ type: 'battle' }, px(10, { r: 132, g: 240, b: 2
 eq(coverage.classifyNodePixels({ type: 'battle' }, px(10, { r: 192, g: 192, b: 192 })), 'unvisited', '灰白像素 → 未通过');
 eq(coverage.classifyNodePixels({ type: 'boss' }, px(10, { r: 216, g: 48, b: 72 })), 'visited', '红色像素 → BOSS 已通过');
 eq(coverage.classifyNodePixels({ type: 'supply' }, px(10, { r: 180, g: 252, b: 144 })), 'visited', '亮绿像素 → 补给点已通过');
+
+/* samplePixels 的坐标系取地图数据的 screen，而不是写死 1920x1080：
+ * 手机横屏截图（如 2316x1080）也要能对齐坐标，否则采样点会整体偏掉。 */
+const pxMap = {
+  screen: { w: 2316, h: 1080 },
+  nodes: { X: { type: 'battle', x: 1158, y: 540 }, Y: { type: 'supply', x: 100, y: 100 } }
+};
+const gotPts = [];
+const rawPx = coverage.samplePixels(pxMap, graph, 2316, 1080, (x, y) => { gotPts.push([x, y]); return { r: 0, g: 0, b: 0 }; });
+eq(Object.keys(rawPx).join(','), 'X', 'samplePixels 只采样战斗点，补给点不参与');
+eq(gotPts.every(p => Math.abs(p[0] - 1158) <= 27 && Math.abs(p[1] - 540) <= 27), true,
+   '2316x1080 图按 screen 原尺寸采样（不再固定除以 1920）');
+const gotPts2 = [];
+coverage.samplePixels({ nodes: { X: { type: 'battle', x: 960, y: 540 } } }, graph, 3840, 2160,
+  (x, y) => { gotPts2.push([x, y]); return { r: 0, g: 0, b: 0 }; });
+eq(gotPts2.every(p => Math.abs(p[0] - 1920) <= 60 && Math.abs(p[1] - 1080) <= 60), true,
+   '没有 screen 字段的老数据仍按 1920x1080 缺省坐标系缩放（2 倍图采样点落在 1920/1080 附近）');
 
 /* 用真实游戏截图采样出来的像素回归测试分类器。
  * 夹具由 app/coverage.js 的 samplePixels 对 shots/_sample_map.png 采样生成，
@@ -445,16 +493,36 @@ console.log('\n[11] 数据与求值器的契约');
 const KNOWN_OPS = ['<', '<=', '=', '>=', '>'];
 const KNOWN_KINDS = ['舰种', '阵营', '舰灵数', '均速', '索敌'];
 const badOps = [], badKinds = [], badKeys = [];
-Object.keys(map.nodes).forEach(id => {
-  (map.nodes[id].next || []).forEach(e => (e.cond || []).forEach(c => {
-    if (KNOWN_OPS.indexOf(cond.normOp(c.op)) < 0) badOps.push(`${id}->${e.to} op=${c.op}`);
-    if (KNOWN_KINDS.indexOf(c.kind) < 0) badKinds.push(`${id}->${e.to} kind=${c.kind}`);
-    if ((c.kind === '舰种' || c.kind === '阵营') && !c.key) badKeys.push(`${id}->${e.to} ${c.kind} 缺 key`);
+(global.window.FX_MAPS || []).forEach(m => Object.keys(m.nodes).forEach(id => {
+  (m.nodes[id].next || []).forEach(e => (e.cond || []).forEach(c => {
+    if (KNOWN_OPS.indexOf(cond.normOp(c.op)) < 0) badOps.push(`${m.id}/${id}->${e.to} op=${c.op}`);
+    if (KNOWN_KINDS.indexOf(c.kind) < 0) badKinds.push(`${m.id}/${id}->${e.to} kind=${c.kind}`);
+    if ((c.kind === '舰种' || c.kind === '阵营') && !c.key) badKeys.push(`${m.id}/${id}->${e.to} ${c.kind} 缺 key`);
   }));
-});
-eq(badOps, [], '地图数据里所有运算符都能被求值器识别（含全角 ≥）');
-eq(badKinds, [], '地图数据里所有 kind 都被支持');
-eq(badKeys, [], '舰种/阵营条件都必须带 key');
+}));
+eq(badOps, [], '所有地图数据的运算符都能被求值器识别（含全角 ≥）');
+eq(badKinds, [], '所有地图数据的 kind 都被支持');
+eq(badKeys, [], '所有地图的舰种/阵营条件都带 key');
+
+// terminal: true 是"这个普通战斗点/补给点确实是终点"的显式确认（validate_map 据此不再报警），
+// 所以它只能出现在 battle/supply 且必须真的没有出边 —— 写错要当错误报出来。
+const badTerminals = [];
+(global.window.FX_MAPS || []).forEach(m => Object.keys(m.nodes).forEach(id => {
+  const n = m.nodes[id];
+  if (!n.terminal) return;
+  if ((n.next || []).length) badTerminals.push(`${m.id}/${id} 标了 terminal 但还有出边`);
+  if (n.type !== 'battle' && n.type !== 'supply') badTerminals.push(`${m.id}/${id} 类型 ${n.type} 不能用 terminal`);
+}));
+eq(badTerminals, [], 'terminal: true 只用在 battle/supply 且必须没有出边');
+
+// 反向：非 boss 的叶节点必须显式写 terminal: true（这是"确认它是终点"的凭据），
+// 这样即使有人只跑 npm test、没跑 validate_map，也抓得到漏标的终点。
+const missingTerminal = [];
+(global.window.FX_MAPS || []).forEach(m => Object.keys(m.nodes).forEach(id => {
+  const n = m.nodes[id];
+  if (!(n.next || []).length && n.type !== 'boss' && !n.terminal) missingTerminal.push(`${m.id}/${id} (${n.type})`);
+}));
+eq(missingTerminal, [], '非 boss 的终点节点都写了 terminal: true');
 
 eq(cond.normOp('≥'), '>=', 'normOp 把全角 ≥ 归一化成 >=');
 eq(cond.normOp('≤'), '<=', 'normOp 把全角 ≤ 归一化成 <=');

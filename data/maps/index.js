@@ -6,6 +6,7 @@
 window.FX_MAP_FILES = [
   "bolanhui.js",
   "pinganye.js",
-  "luoxiafengying.js"
+  "luoxiafengying.js",
+  "dianyingdazuozhan.js"
   // "next-event.js",
 ];

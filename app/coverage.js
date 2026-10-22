@@ -167,11 +167,13 @@
 
   /**
    * 按地图里记录的节点坐标采集每个战斗节点图标环上的像素。
-   * getPixel(x, y) 返回 {r,g,b}；W/H 是图片真实尺寸，内部按 1920x1080 的地图坐标系缩放。
+   * getPixel(x, y) 返回 {r,g,b}；W/H 是图片真实尺寸，内部按地图数据里的
+   * map.screen（游戏内截图坐标系，缺省 1920x1080）缩放。
    * 返回 { 节点id: [{r,g,b}, ...] } —— 原始样本，便于单独测试分类逻辑。
    */
   function samplePixels(map, graph, W, H, getPixel) {
-    var sx = W / 1920, sy = H / 1080;
+    var SW = (map.screen && map.screen.w) || 1920, SH = (map.screen && map.screen.h) || 1080;
+    var sx = W / SW, sy = H / SH;
     var out = {};
     Object.keys(map.nodes).forEach(function (id) {
       var n = map.nodes[id];

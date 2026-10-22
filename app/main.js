@@ -652,10 +652,11 @@
   /** 从截图里按每个节点记录的坐标采样图标颜色，判定已通过 / 未通过 */
   function sampleVisited(img) {
     var W = img.naturalWidth || img.width, H = img.naturalHeight || img.height;
-    var ratio = W / H, target = 1920 / 1080;
+    var SW = (MAP.screen && MAP.screen.w) || 1920, SH = (MAP.screen && MAP.screen.h) || 1080;
+    var ratio = W / H, target = SW / SH;
     if (Math.abs(ratio - target) > 0.04) {
-      throw new Error('图片长宽比是 ' + ratio.toFixed(3) + '，和地图的 16:9(' + target.toFixed(3) +
-                      ') 差太多，无法对齐坐标。请用模拟器的原始截图（1920x1080）。');
+      throw new Error('图片长宽比是 ' + ratio.toFixed(3) + '，和本图数据记录的 ' + SW + 'x' + SH +
+                      '(' + target.toFixed(3) + ') 差太多，无法对齐坐标。请用和游戏画面同比例的原始截图。');
     }
     var canvas = doc.createElement('canvas');
     canvas.width = W; canvas.height = H;

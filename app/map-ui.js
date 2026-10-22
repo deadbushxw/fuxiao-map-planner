@@ -1,6 +1,7 @@
 /* 地图渲染 + 交互
  *
- * 用 SVG 按游戏内的真实坐标(1920x1080)绘制，所以网页上的布局和游戏里一致。
+ * 用 SVG 按游戏内的真实坐标绘制（坐标系取地图数据的 screen，缺省 1920x1080），
+ * 所以网页上的布局和游戏里一致。
  * 每次状态变化整体重绘 —— 节点只有 20 个，重绘成本可以忽略，换来代码简单可预测。
  *
  * 交互:
@@ -164,14 +165,18 @@
     routeNodes.forEach(function (id) { onPath[id] = true; });
 
     host.innerHTML = '';
-    var svg = el('svg', { viewBox: '0 0 1920 1080', class: 'fx-map' }, host);
+    // 地图坐标系取数据里的 screen（游戏内截图尺寸，缺省 1920x1080）。
+    // 不同设备/模拟器的横屏分辨率不一样（例如手机 2316x1080），按各自的原生尺寸画，
+    // 节点坐标才和游戏画面一一对应，拖截图识别时也才采样得准。
+    var SW = (map.screen && map.screen.w) || 1920, SH = (map.screen && map.screen.h) || 1080;
+    var svg = el('svg', { viewBox: '0 0 ' + SW + ' ' + SH, class: 'fx-map' }, host);
 
     // 背景网格
     var defs = el('defs', {}, svg);
     var pat = el('pattern', { id: 'grid', width: 80, height: 80, patternUnits: 'userSpaceOnUse' }, defs);
     el('path', { d: 'M 80 0 L 0 0 0 80', fill: 'none', stroke: '#1d3c56', 'stroke-width': 1.5 }, pat);
-    el('rect', { x: 0, y: 0, width: 1920, height: 1080, fill: '#0d2135' }, svg);
-    el('rect', { x: 0, y: 0, width: 1920, height: 1080, fill: 'url(#grid)' }, svg);
+    el('rect', { x: 0, y: 0, width: SW, height: SH, fill: '#0d2135' }, svg);
+    el('rect', { x: 0, y: 0, width: SW, height: SH, fill: 'url(#grid)' }, svg);
 
     // 边
     var edgeLayer = el('g', {}, svg);

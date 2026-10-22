@@ -105,6 +105,7 @@ window.FX_MAPS.push({
     H: {
       label: "H", type: "supply", icon: "can", x: 402, y: 355,
       effect: { kind: "fuel", percent: 50, basis: "上一战斗节点的出战队伍油耗" },
+      terminal: true,
       next: []
     },
 
@@ -175,7 +176,7 @@ window.FX_MAPS.push({
    *  5. 普通战斗点只记了 敌人等级 LV.65 / 建议索敌 189 / 建议制空 0~86，
    *     编成没有逐个录入（与 bolanhui 一致，只有 boss 记 bosses[]）。
    *  6. 活动时间：活动主界面读到 10/15 ~ 10/22（地图界面显示"剩余时间 6天"）。
-   *  7. tools/validate_map.js 会对 H 报一条警告（"没有出边但不是 boss"）——
-   *     这是补给点做终点的正常情况，pinganye 的 I/Q 同类，属预期。
+   *  7. H 是补给点做终点（面板上没有后续节点行），数据里写了 terminal: true 明确标记，
+   *     所以 validate_map 不再对它报"没有出边但不是 boss"的确认警告。
    */
 });

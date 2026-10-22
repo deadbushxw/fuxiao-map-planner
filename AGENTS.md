@@ -66,7 +66,7 @@ shots/ tools/preview/ tools/batches/   采集中间产物，gitignore，绝不�
 npm test                        # = validate_map + validate_ships + test_core（零依赖，不需要 install）
 node tools/validate_map.js       # 图校验 + 路线枚举，要 0 错误 0 警告
 node tools/validate_ships.js     # 舰灵库校验（舰种/国籍逐字、油耗、id 重复）；空库放行
-node tools/test_core.js          # 核心逻辑单测（255 项）
+node tools/test_core.js          # 核心逻辑单测（273 项）
 node tools/plan_coverage.js --allow-retreat --verify   # 覆盖规划命令行版 + 暴力枚举交叉验证
 npm run privacy                  # 发布前自查：本机路径 / 账号数据 / 私人口吻，命中即非 0
 node tools/check_privacy.js --list   # 只列出会被提交的文件
@@ -119,8 +119,11 @@ python tools/serve.py            # http 预览（带 Cache-Control: no-store）�
 
 1. 照 `data/maps/bolanhui.js` 的格式新建 `data/maps/<活动名>.js`，用 `window.FX_MAPS.push({...})` 注册
 2. 在 `data/maps/index.js` 的文件名数组里加一行
-3. 采集节点坐标 / 面板 / 掉落的方法见 [tools/README.md](tools/README.md)（含坑与自动化脚本）
-4. `node tools/validate_map.js` 必须 **0 错误 0 警告**
+3. 采集节点坐标 / 面板 / 掉落的方法见 [tools/README.md](tools/README.md)（含坑与自动化脚本）；
+   节点坐标按**采集设备截图的原图像素**记录，并在数据里写 `screen: { w, h }`
+   （页面画图与拖截图识别都按它缩放，缺省 1920x1080）
+4. `node tools/validate_map.js <地图id>` 必须 **0 错误 0 警告**；普通战斗点 / 补给点做终点时
+   在数据里写 `terminal: true`（校验器据此区分「正常终点」和「漏了出边」）
 5. 条件里的阵营名逐字核对；BOSS 用 `bosses: [{type, count, armor}]` 数组（一个点可能有多个 BOSS）
 
 ## 八、文档写作约定

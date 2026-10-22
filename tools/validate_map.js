@@ -6,6 +6,9 @@
  *   2. 不允许双向边 (A->B 与 B->A 同时存在)
  *   3. 从 start 出发所有节点可达
  *   4. 终点节点 next 必须为空; 非终点必须非空
+ *      —— 普通战斗点 / 补给点做终点时要在数据里写 terminal: true 明确确认，
+ *         否则报"没有出边但不是 boss"的警告；反过来 terminal: true 也必须真的没有出边、
+ *         且类型只能是 battle / supply（写错会报错，不是警告）
  *   5. 同一节点的多条分支条件不应完全相同
  * 输出: 每条 start->终点 的路线, 含战斗数、油点位置、条件链
  */
@@ -60,8 +63,18 @@ console.log('--- 4. 终点/分支一致性 ---');
 const BATTLE = new Set(['battle', 'boss']);
 for (const [id, n] of Object.entries(N)) {
   const outs = n.next || [];
-  if (outs.length === 0 && n.type !== 'boss') warn(`${id} (${n.type}) 没有出边但不是 boss —— 确认是否真的是终点`);
-  if (outs.length > 0 && n.next.length !== outs.length) err(`${id} next 异常`);
+  // 普通战斗点 / 补给点做终点是允许的（面板上确实没有后续节点行），但要求数据里
+  // 显式写 terminal: true —— 这就是对这条警告的"确认"，避免真漏采时也悄悄放过。
+  // 反向也要查：标了 terminal 却还有出边、或把 terminal 用在 boss/start 上，都是数据写错了。
+  if (outs.length === 0 && n.type !== 'boss' && !n.terminal) {
+    warn(`${id} (${n.type}) 没有出边但不是 boss —— 确认是否真的是终点（确认后在数据里写 terminal: true）`);
+  }
+  if (n.terminal) {
+    if (outs.length > 0) err(`${id} 标了 terminal: true 但还有 ${outs.length} 条出边`);
+    if (n.type !== 'battle' && n.type !== 'supply') {
+      err(`${id} 标了 terminal: true，但 terminal 只允许用在 battle / supply 上（当前类型 ${n.type}）`);
+    }
+  }
 }
 console.log(`  终点: ${Object.entries(N).filter(([, n]) => (n.next || []).length === 0).map(([id]) => id).join(', ')}`);
 
