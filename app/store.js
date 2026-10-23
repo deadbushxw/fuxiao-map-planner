@@ -38,11 +38,12 @@
     mapMode: 'event',    // 'event' 限时活动 | 'archive' 档案（常驻）。只影响代币与掉落加成的展示
     objective: 'net',    // 自动分配目标: 'net'（省油）
     hideUnknown: false,
-    visitedByMap: {},    // { 地图id: { 节点id: true } } 已通过（非灰）的战斗节点
+    visitedByMap: {},    // { 地图id: { 节点id: true } } 已通过（非灰）的节点（战斗点 + 补给点等非战斗节点）
     historyByMap: {},    // { 地图id: { manual: {nodes,at}|null, auto: {nodes,at}|null } } 路线历史，见下方
     recent: [],          // 最近编入过队伍的舰灵 id，最新的在前
     coverageOpts: {      // 覆盖规划选项
       allowRetreat: true,    // 允许中途撤退（则候选含所有路线前缀）
+      includeNonBattle: true, // 覆盖目标是否含非战斗节点（补给点等；委托解锁要跑遍所有节点）
       includeBoss: true,     // 覆盖目标是否包含 BOSS 点
       objective: 'battles',  // 'battles' 最少总战数 | 'runs' 最少趟数
       useFleetFilter: true   // 用当前编队的带路条件过滤候选路线

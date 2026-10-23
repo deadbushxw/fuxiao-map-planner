@@ -48,8 +48,8 @@ adb -s emulator-5556 pull /sdcard/_cap.png "<项目目录>/shots/A.png"
 | `scan_dropbars.ps1` | 扫描掉落列表头像顶端"品质横条"颜色，判定 金/紫/蓝/绿 |
 | `validate_map.js` | 校验地图数据（目标合法、无双向边、可达性、终点一致性）并枚举全部路线 |
 | `validate_ships.js` | 校验 `data/ships.js` 舰灵库（舰种/国籍是否逐字匹配、油耗是否合法、id 是否重复），并打印舰种/国籍分布 |
-| `plan_coverage.js` | 覆盖规划命令行版：最少总战数走遍未通过的战斗节点。求解逻辑在 `app/coverage.js`，和网页端共用 |
-| `test_core.js` | 核心逻辑单测（条件/冲突/油耗/自动分配/覆盖规划/阵营表/像素分类/编队占用/搜索排序/BOSS 装甲/一轮代币/路线历史/未绑定横幅/按 screen 采样/全地图契约/终点标记），273 项 |
+| `plan_coverage.js` | 覆盖规划命令行版：最少总战数走遍未通过的目标节点（默认含补给点等非战斗节点）。求解逻辑在 `app/coverage.js`，和网页端共用 |
+| `test_core.js` | 核心逻辑单测（条件/冲突/油耗/自动分配/覆盖规划/阵营表/像素分类/编队占用/搜索排序/BOSS 装甲/一轮代币/路线历史/未绑定横幅/按 screen 采样/全地图契约/终点标记），296 项 |
 | `check_privacy.js` | 发布前自查：扫描**已入库**的文件，看有没有混进本机路径、账号数据或个人进度。有命中就非 0 退出 |
 | `fixtures/` | 测试夹具。`node-icon-samples.json` 是从真实游戏截图采样的节点像素，用于回归测试"已通过"颜色分类器 |
 
@@ -59,8 +59,11 @@ adb -s emulator-5556 pull /sdcard/_cap.png "<项目目录>/shots/A.png"
 node tools/plan_coverage.js --allow-retreat --verify
 node tools/plan_coverage.js --done=A,C,F,G,J --allow-retreat
 node tools/plan_coverage.js --exclude-boss --objective=runs
+node tools/plan_coverage.js --allow-retreat --exclude-nonbattle   # 只看战斗节点的旧口径
 ```
 
+默认目标和网页端一致：含补给点等非战斗节点（委托解锁要求走遍所有节点）。
+`--exclude-nonbattle` 退回只看战斗节点；`--done=` 里写补给点 id 也能跳过它。
 `--verify` 会用暴力枚举交叉验证 DP 的结果，改过求解逻辑后建议带上。
 
 ## 采集新活动地图的流程

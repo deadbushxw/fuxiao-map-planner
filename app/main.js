@@ -601,22 +601,32 @@
   }
 
   /* ================= 覆盖规划 =================
-   * 目标: 用最少总战数把还没通过的战斗节点全部走一遍（全非灰才解锁自动作战）。
+   * 目标: 用最少总战数把还没通过的目标节点全部走一遍（全非灰才解锁自动作战 / 委托）。
+   * 委托要求跑遍**所有节点**，非战斗节点（补给点）也算 —— 所以目标集默认含非战斗节点，
+   * 可以用「包括非战斗节点」关掉，退回只看战斗节点的老口径。
    * 一趟只能走一条从起点出发的路线，且 O/Q 这类互斥分支一趟走不到，所以要按趟规划。 */
 
   var bottomTab = 'routes';
 
-  /** 还需要覆盖的节点：战斗点(含BOSS) 里还没标记"已通过"的 */
+  /** 已经能判定「已通过」的节点（地图上除起点外的全部节点）。
+   *  起点每次出击必然经过、不需要标记，所以不算进覆盖目标，也不进已通过清单。 */
+  function coverageNodeIds() {
+    return MAP ? FX.coverage.nodeIds(MAP) : [];
+  }
+
+  /** 还需要覆盖的目标节点：按当前选项过滤掉「不含 BOSS」「不含非战斗节点」，
+   *  再去掉已经标记为"已通过"的。判定规则放在 coverage 模块里，和命令行版共用。 */
   function coverageTargets() {
     if (!MAP) return [];
-    var o = S.coverageOpts;
-    var visited = FX.store.visitedOf(MAP.id);
-    return Object.keys(MAP.nodes).filter(function (id) {
-      var n = MAP.nodes[id];
-      if (!FX.graph.isBattle(n)) return false;
-      if (!o.includeBoss && n.type === 'boss') return false;
-      return !visited[id];
-    });
+    return FX.coverage.targets(MAP, FX.graph, FX.store.visitedOf(MAP.id), S.coverageOpts);
+  }
+
+  /** 节点 chip 上显示的标签后缀：BOSS 和补给点要能一眼认出来 */
+  function chipLabel(id) {
+    var n = MAP.nodes[id];
+    if (n.type === 'boss') return id + '(BOSS)';
+    if (!FX.graph.isBattle(n)) return id + '(' + FX.mapUi.typeLabel(n.type) + ')';
+    return id;
   }
 
   /** 编队是否已经填够（每队至少 2 个舰灵）。
@@ -703,10 +713,12 @@
     }
     var o = S.coverageOpts;
     var visited = FX.store.visitedOf(MAP.id);
-    var battleIds = Object.keys(MAP.nodes).filter(function (id) { return FX.graph.isBattle(MAP.nodes[id]); });
+    var allIds = coverageNodeIds();
 
     // --- 选项 ---
     var bar = h('div', { class: 'fx-row' });
+    bar.appendChild(chk('包括非战斗节点', o.includeNonBattle !== false, function (v) { o.includeNonBattle = v; FX.store.save(); rerender(); },
+      '委托解锁要求走遍所有节点（含补给点这类非战斗节点）；关掉后只要求通过战斗节点'));
     bar.appendChild(chk('允许中途撤退', o.allowRetreat, function (v) { o.allowRetreat = v; FX.store.save(); rerender(); },
       '允许的话候选路线会包含所有前缀，最后一趟可能不用走到底，最优解通常更省'));
     bar.appendChild(chk('包含 BOSS 点', o.includeBoss, function (v) { o.includeBoss = v; FX.store.save(); rerender(); }));
@@ -722,33 +734,34 @@
     host.appendChild(bar);
 
     // --- 已通过节点 ---
+    // 清单覆盖「地图上除起点外的全部节点」：委托要求走遍所有节点，
+    // 非战斗节点（补给点）的已通过状态也得能在这里看和改。
     var sec = h('div', { class: 'fx-cover-sec' });
     sec.appendChild(h('div', { class: 'fx-sec-title', text:
-      '已通过节点（' + battleIds.filter(function (id) { return visited[id]; }).length + '/' + battleIds.length +
+      '已通过节点（' + allIds.filter(function (id) { return visited[id]; }).length + '/' + allIds.length +
       '）　点击切换；地图上 Shift+点击 也可以' }));
     var chips = h('div', { class: 'fx-chips' });
-    battleIds.forEach(function (id) {
-      var n = MAP.nodes[id];
+    allIds.forEach(function (id) {
       chips.appendChild(h('button', {
         class: 'fx-chip fx-vchip' + (visited[id] ? ' on' : ''),
         title: '点击切换「' + id + '」的已通过状态',
-        text: id + (n.type === 'boss' ? '(BOSS)' : ''),
+        text: chipLabel(id),
         onclick: function () { FX.store.toggleVisited(MAP.id, id); rerender(); }
       }));
     });
     sec.appendChild(chips);
     sec.appendChild(h('div', { class: 'fx-row' }, [
       h('button', { class: 'fx-btn', text: '全部标为已通过', onclick: function () {
-        FX.store.setVisitedBulk(MAP.id, battleIds, true); rerender();
+        FX.store.setVisitedBulk(MAP.id, allIds, true); rerender();
       } }),
       h('button', { class: 'fx-btn', text: '全部标为未通过', onclick: function () {
-        FX.store.setVisitedBulk(MAP.id, battleIds, false); rerender();
+        FX.store.setVisitedBulk(MAP.id, allIds, false); rerender();
       } })
     ]));
 
     // --- 截图识别 ---
     var drop = h('div', { class: 'fx-drop' }, [
-      h('span', { text: '把游戏地图截图拖到这里自动识别已通过节点（或点这里选文件）。按节点坐标采样图标颜色：已通过=青蓝/红/亮绿，未通过=灰白。' })
+      h('span', { text: '把游戏地图截图拖到这里自动识别已通过节点（或点这里选文件）。按节点坐标采样图标颜色：战斗点=青蓝、BOSS=红、补给点=亮绿，未通过=灰白；判定不了的保持原样。' })
     ]);
     var fileInput = h('input', { type: 'file', accept: 'image/*', style: 'display:none' });
     drop.onclick = function () { fileInput.click(); };
@@ -771,7 +784,7 @@
     // --- 求解 ---
     var targets = coverageTargets();
     if (!targets.length) {
-      host.appendChild(h('div', { class: 'fx-empty', text: '所有战斗节点都标记为已通过了，不需要规划。' }));
+      host.appendChild(h('div', { class: 'fx-empty', text: '当前选项下需要覆盖的节点都标记为已通过了，不需要规划。' }));
       return;
     }
     var fleetNow = FX.store.currentFleet();
@@ -869,7 +882,7 @@
         ' 趟无法给出合法出战分配（例如超过两队各 5 战的上限）：' + problems[0].why }));
     }
     host.appendChild(h('div', { class: 'fx-muted', text:
-      '规划只保证"战斗节点全部走到"，每趟的出战分配仍按「BOSS 强制强队、每队 ≤5 战」自动算。' }));
+      '规划只保证"需要覆盖的节点全部走到"（默认含非战斗节点），每趟的出战分配仍按「BOSS 强制强队、每队 ≤5 战」自动算。' }));
   }
 
   /* ---------- 渲染 ---------- */

@@ -66,8 +66,8 @@ shots/ tools/preview/ tools/batches/   采集中间产物，gitignore，绝不�
 npm test                        # = validate_map + validate_ships + test_core（零依赖，不需要 install）
 node tools/validate_map.js       # 图校验 + 路线枚举，要 0 错误 0 警告
 node tools/validate_ships.js     # 舰灵库校验（舰种/国籍逐字、油耗、id 重复）；空库放行
-node tools/test_core.js          # 核心逻辑单测（273 项）
-node tools/plan_coverage.js --allow-retreat --verify   # 覆盖规划命令行版 + 暴力枚举交叉验证
+node tools/test_core.js          # 核心逻辑单测（296 项）
+node tools/plan_coverage.js --allow-retreat --verify   # 覆盖规划命令行版（默认含非战斗节点）+ 暴力枚举交叉验证
 npm run privacy                  # 发布前自查：本机路径 / 账号数据 / 私人口吻，命中即非 0
 node tools/check_privacy.js --list   # 只列出会被提交的文件
 python tools/serve.py            # http 预览（带 Cache-Control: no-store），可选

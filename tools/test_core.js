@@ -335,6 +335,40 @@ const solFiltered = coverage.solve(map, graph, allBattle, { allowRetreat: true, 
 eq(solFiltered.ok, false, '所有路线都被过滤掉时应判无解');
 eq(solFiltered.uncovered.length, 18, '无解时列出全部未覆盖节点，而不是只丢一句无解');
 
+/* 委托解锁要求跑遍**所有节点**，非战斗节点（补给点）也算目标。
+ * 覆盖判定必须看「路线经过的全部节点」，不是只看战斗点 —— 否则补给点永远算没覆盖，
+ * 含它的规划会误报无解。 */
+const nonBattleIds = Object.keys(map.nodes).filter(id => !graph.isBattle(map.nodes[id]) && map.nodes[id].type !== 'start');
+eq(nonBattleIds, ['R'], '本图的非战斗节点只有补给点 R（起点不算覆盖目标）');
+const allCoverIds = Object.keys(map.nodes).filter(id => map.nodes[id].type !== 'start');
+eq(allCoverIds.length, 19, '全部覆盖目标共 19 个（18 战斗 + 1 补给）');
+const solCoverAll = coverage.solve(map, graph, allCoverIds, { allowRetreat: true });
+eq(solCoverAll.ok, true, '把补给点也算进目标时仍然可解');
+eq(solCoverAll.totalBattles, 25, '包含 R 后本图总战数不变（最优解本来就走 P→R→S）');
+const coveredAll = new Set();
+solCoverAll.runs.forEach(r => r.newCovered.forEach(id => coveredAll.add(id)));
+eq(allCoverIds.filter(id => !coveredAll.has(id)), [], '方案覆盖了含非战斗节点在内的全部目标');
+const solOnlyR = coverage.solve(map, graph, ['R'], { allowRetreat: true });
+eq(solOnlyR.ok, true, '只把补给点 R 当目标也能规划（以前只按战斗点算会误报无解）');
+eq(solOnlyR.totalBattles, 6, '只要求通过补给点 R 时需要 6 战（A-B-E-H-L-P-R）');
+eq(solOnlyR.runs[0].newCovered, ['R'], '新增覆盖里能标出非战斗节点 R');
+eq(solOnlyR.runs[0].nodes.indexOf('R') > 0, true, '方案路线确实经过 R');
+
+/* 目标集选择：网页端的「包括非战斗节点」开关与命令行共用 coverage.targets()。
+ * 默认口径必须含非战斗节点（委托解锁要跑遍所有节点），显式 false 才退回老口径。 */
+eq(coverage.nodeIds(map).length, 19, '可跟踪节点 = 除起点外全部节点（19 个）');
+eq(coverage.targets(map, graph, {}, { includeBoss: true, includeNonBattle: true }), allCoverIds,
+   '默认选项：目标 = 除起点外全部节点（含补给点）');
+eq(coverage.targets(map, graph, {}, {}), allCoverIds, '不传选项时也默认包含非战斗节点');
+eq(coverage.targets(map, graph, {}, { includeBoss: true, includeNonBattle: false }), allBattle,
+   '关掉「包括非战斗节点」→ 退回只看战斗节点的老口径');
+const noBossWithSupply = coverage.targets(map, graph, {}, { includeBoss: false, includeNonBattle: true });
+eq(noBossWithSupply.includes('R'), true, '不含 BOSS 时补给点 R 仍是目标');
+eq(noBossWithSupply.includes('O'), false, '不含 BOSS 时 BOSS 点不算目标');
+eq(coverage.targets(map, graph, { R: true }, {}).includes('R'), false, '已通过的补给点不再算目标');
+eq(coverage.targets(map, graph, { O: true }, {}).includes('O'), false, '已通过的 BOSS 点不再算目标');
+eq(coverage.targets(map, graph, {}, { includeNonBattle: false }).includes('R'), false, '只算战斗节点时 R 不在目标里');
+
 const px = (n, c) => Array.from({ length: n }, () => c);
 eq(coverage.classifyNodePixels({ type: 'battle' }, px(10, { r: 132, g: 240, b: 252 })), 'visited', '青蓝像素 → 战斗点已通过');
 eq(coverage.classifyNodePixels({ type: 'battle' }, px(10, { r: 192, g: 192, b: 192 })), 'unvisited', '灰白像素 → 未通过');
@@ -345,13 +379,27 @@ eq(coverage.classifyNodePixels({ type: 'supply' }, px(10, { r: 180, g: 252, b: 1
  * 手机横屏截图（如 2316x1080）也要能对齐坐标，否则采样点会整体偏掉。 */
 const pxMap = {
   screen: { w: 2316, h: 1080 },
-  nodes: { X: { type: 'battle', x: 1158, y: 540 }, Y: { type: 'supply', x: 100, y: 100 } }
+  nodes: { X: { type: 'battle', x: 1158, y: 540 } }
 };
 const gotPts = [];
 const rawPx = coverage.samplePixels(pxMap, graph, 2316, 1080, (x, y) => { gotPts.push([x, y]); return { r: 0, g: 0, b: 0 }; });
-eq(Object.keys(rawPx).join(','), 'X', 'samplePixels 只采样战斗点，补给点不参与');
+eq(Object.keys(rawPx).join(','), 'X', '坐标测试图里只有战斗点 X');
 eq(gotPts.every(p => Math.abs(p[0] - 1158) <= 27 && Math.abs(p[1] - 540) <= 27), true,
    '2316x1080 图按 screen 原尺寸采样（不再固定除以 1920）');
+
+/* 截图采样范围：战斗点和补给点（委托要求走遍所有节点，补给点也要能自动标记）；
+ * 起点每次出击必然经过、未知类型没校准过配色 → 都不采样。 */
+const scopeMap = {
+  screen: { w: 2316, h: 1080 },
+  nodes: {
+    X: { type: 'battle', x: 1158, y: 540 },
+    Y: { type: 'supply', x: 100, y: 100 },
+    Z: { type: 'start', x: 500, y: 500 },
+    U: { type: 'mystery', x: 700, y: 700 }
+  }
+};
+eq(Object.keys(coverage.samplePixels(scopeMap, graph, 2316, 1080, () => ({ r: 0, g: 0, b: 0 }))).sort().join(','),
+   'X,Y', 'samplePixels 采样战斗点与补给点，起点/未知类型不采样');
 const gotPts2 = [];
 coverage.samplePixels({ nodes: { X: { type: 'battle', x: 960, y: 540 } } }, graph, 3840, 2160,
   (x, y) => { gotPts2.push([x, y]); return { r: 0, g: 0, b: 0 }; });
@@ -381,6 +429,7 @@ eq(coverage.solve(map, graph, allBattle.filter(id => fixture.expectedVisited.ind
 console.log('\n[8] 编队占用与重复编入');
 require(path.join(__dirname, '..', 'app', 'store.js'));
 const store = global.window.FX.store;
+eq(store.state.coverageOpts.includeNonBattle, true, '覆盖规划默认包含非战斗节点（委托解锁要跑遍所有节点）');
 
 const fleetA = { id: 'f1', teams: [{ ships: ['a', 'b'] }, { ships: ['c'] }] };
 eq(store.usageOf(fleetA), { a: 0, b: 0, c: 1 }, 'usageOf 标出每艘船被哪个队伍占用');
@@ -678,6 +727,26 @@ eq(B({ supported: true, bound: false }).text.indexOf('丢') >= 0, true, '文案�
 // 不变量：凡是 show=true 就必须有非空按钮文案 —— 否则横幅就成了"只给文字提示"
 eq([{ supported: true, bound: false }, { supported: true, bound: true, needsPermission: true }]
      .map(s => (B(s).actionText || '').length > 0), [true, true], '每种要显示的横幅都必须自带按钮文案');
+
+// ---------- 17. 旧草稿里的覆盖规划选项 ----------
+console.log('\n[17] 旧草稿的覆盖规划选项（包括非战斗节点默认开）');
+/* 老版本草稿里的 coverageOpts 没有 includeNonBattle 字段。委托解锁要求跑遍所有节点，
+ * 所以这种旧草稿读出来必须是「勾上」，不能因为缺字段变成关掉。 */
+const fakeStorage = { data: null };
+global.window.localStorage = {
+  getItem: () => fakeStorage.data,
+  setItem: (k, v) => { fakeStorage.data = v; },
+  removeItem: () => { fakeStorage.data = null; }
+};
+global.window.FX_SHIPS = [];
+global.window.FX_FLEETS = [];
+fakeStorage.data = JSON.stringify({ ships: [], fleets: [], coverageOpts: { allowRetreat: false } });
+store.init();
+eq(store.state.coverageOpts.includeNonBattle, true, '旧草稿缺字段 → includeNonBattle 默认开');
+eq(store.state.coverageOpts.allowRetreat, false, '旧草稿里已存的其他选项保持不变');
+fakeStorage.data = JSON.stringify({ ships: [], fleets: [], coverageOpts: { includeNonBattle: false } });
+store.init();
+eq(store.state.coverageOpts.includeNonBattle, false, '草稿里明确关掉时保持关掉');
 
 console.log(`\n=== ${pass} 通过, ${fail} 失败 ===\n`);
 process.exit(fail ? 1 : 0);
